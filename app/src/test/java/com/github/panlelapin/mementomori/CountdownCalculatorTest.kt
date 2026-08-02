@@ -6,6 +6,14 @@ import java.time.LocalDate
 
 class CountdownCalculatorTest {
     @Test
+    fun labelsUseThinSpacingBeforeSuffix() {
+        assertEquals(
+            listOf("10\u2009a", "120\u2009m", "521\u2009s"),
+            Countdown(years = 10, months = 120, weeks = 521).labels(),
+        )
+    }
+
+    @Test
     fun targetDateHasNoCompleteIntervalsRemaining() {
         assertEquals(Countdown(0, 0, 0), CountdownCalculator.from(TARGET_DATE))
     }

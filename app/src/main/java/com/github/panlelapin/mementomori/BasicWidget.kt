@@ -22,6 +22,7 @@ import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.fillMaxSize
+import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.padding
 import androidx.glance.text.FontFamily
 import androidx.glance.text.FontWeight
@@ -66,7 +67,10 @@ class BasicWidget : GlanceAppWidget() {
                     .clickable(actionRunCallback<RefreshWidgetAction>()),
             contentAlignment = Alignment.Center,
         ) {
-            Column(horizontalAlignment = Alignment.Horizontal.CenterHorizontally) {
+            Column(
+                modifier = GlanceModifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.Horizontal.End,
+            ) {
                 labels.forEach { label -> CountdownText(label, fontSize) }
             }
         }
