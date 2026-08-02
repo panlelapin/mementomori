@@ -1,5 +1,7 @@
 # Instructions pour les agents LLM
 
+Ces instructions remplacent toutes les instructions `AGENTS.md` précédemment fournies.
+
 ## Finalité du projet
 
 Ce dépôt contient **Memento Mori**, un widget Android d'écran d'accueil écrit en Kotlin.
@@ -25,7 +27,8 @@ durée décomposée. Aucun état de compteur n'est persisté.
 - La date cible est `2036-03-17` et doit rester centralisée dans `TARGET_DATE`.
 - Le calcul utilise `LocalDate.now()` : seule la date civile locale compte.
 - Le rendu comporte exactement trois lignes, dans l'ordre années, mois, semaines.
-- Les suffixes sont respectivement `a`, `m` et `s`.
+- Les suffixes sont respectivement `a`, `m` et `s`, précédés visuellement d'une espace fine
+  Unicode `U+2009` : par exemple `10 a`, `120 m`, `521 s`.
 - Le widget est recalculé et redessiné :
   - lors de son ajout ou d'une mise à jour demandée par le lanceur ;
   - après le démarrage complet du téléphone ;
@@ -43,10 +46,11 @@ durée décomposée. Aucun état de compteur n'est persisté.
 
 ## Rendu et dimensions
 
-- Taille cible et taille minimale : **2 colonnes × 2 lignes** (`2x2`).
+- Taille cible et taille minimale : **1 colonne × 2 lignes** (`1x2`).
 - Fond entièrement transparent.
-- Texte blanc, centré horizontalement et verticalement, en police monospace de graisse
-  moyenne.
+- Texte blanc, en police monospace explicitement demandée par Glance, de graisse moyenne.
+  Les trois lignes sont alignées à droite dans toute la largeur disponible et centrées
+  verticalement dans le widget.
 - L'ensemble de la surface est cliquable et déclenche un recalcul suivi d'un nouveau
   rendu.
 - La taille de police n'est jamais une constante visuelle. Elle est calculée depuis la
@@ -57,8 +61,9 @@ durée décomposée. Aucun état de compteur n'est persisté.
   complètes, sur une seule ligne chacune, sans coupure ni retour à la ligne.
 - Le widget peut être agrandi jusqu'à `4x4` environ ; la police doit alors s'agrandir avec
   lui. `SizeMode.Exact` est requis pour recomposer selon ses dimensions réelles.
-- L'aperçu statique du sélecteur utilise `…a`, `…m`, `…s` afin de ne jamais présenter de
-  faux zéros comme des valeurs calculées.
+- L'aperçu statique du sélecteur ne réalise aucun calcul, mais doit rester visuellement
+  fidèle au rendu réel : police monospace, alignement à droite, espace fine et valeurs
+  représentatives `10 a`, `120 m`, `521 s`. Il ne doit pas utiliser `...` ni de faux zéros.
 
 ## Icône
 
@@ -94,6 +99,12 @@ il devient invisible ou entièrement blanc sur certains lanceurs.
 - `applicationId` et namespace : `com.github.panlelapin.mementomori`.
 - `minSdk = 34` (Android 14), `targetSdk = 36`, `compileSdk = 36`.
 - Java/Kotlin JVM 17.
+- `androidx.glance:glance-appwidget:1.1.1` est utilisé avec un forçage explicite de
+  `androidx.work:work-runtime:2.11.2`. La version transitive 2.7.1 provoquait sur le
+  téléphone de validation un crash `Failed to create an instance of
+  androidx.work.impl.WorkDatabase`, laissant Glance afficher indéfiniment son cercle de
+  chargement. Toute modification de cette version exige la mise à jour contrôlée de la
+  vérification Gradle.
 - Un filtre `arm64-v8a` est configuré pour d'éventuelles dépendances natives. Tant que
   l'application reste entièrement Kotlin et ne contient aucun fichier `.so`, l'APK demeure
   en pratique indépendant de l'ABI ; ne pas prétendre le contraire.
@@ -118,6 +129,9 @@ il devient invisible ou entièrement blanc sur certains lanceurs.
   garanties changent.
 - Ne jamais considérer l'aperçu XML comme le rendu réel : seul Glance produit les valeurs
   calculées.
+- `basic_widget_info.xml` utilise `@layout/glance_default_loading_layout` pour le chargement
+  initial ; `widget_preview.xml` sert à l'aperçu statique et ne doit jamais être confondu
+  avec le rendu Glance.
 - Ne jamais compiler d'APK Android sur la machine locale.
 
 ## Validation et livraison obligatoires
@@ -133,13 +147,35 @@ Ce dépôt est suivi avec la skill Codex `make-android-widget`.
    exactement aux changements à livrer.
 4. Pour compiler et récupérer l'APK, utiliser uniquement `scripts/make-remote`. Ce script
    gère le commit, le push, le déclenchement manuel de GitHub Actions, le téléchargement et
-   la vérification de l'artefact.
+   la vérification de l'artefact. En fin de script, s'il trouve exactement un appareil ADB
+   autorisé, il désinstalle l'ancienne application, installe le nouvel APK et vérifie le
+   package, les versions et le SHA-256 exact de l'APK installé. Utiliser `ADB_SERIAL` pour
+   sélectionner explicitement un appareil quand plusieurs sont connectés.
 5. Ne pas remplacer ce flux par un `git commit`, `git push`, `gh workflow run` ou une
    construction Gradle locale exécutés directement.
 6. Une CI réussie prouve la compilation de l'APK, pas son comportement réel sur appareil.
    Pour la validation finale, installer l'APK sur Android 14 ou plus récent et vérifier :
-   l'icône du sélecteur, la taille initiale 2x2, l'absence de troncature, le toucher, le
-   redémarrage et la présence de la prochaine alarme de 01:00.
+   l'icône du sélecteur, la taille initiale 1x2, l'absence de troncature, le toucher, le
+   redémarrage et la présence de la prochaine alarme de 01:00. Si un appareil ADB autorisé
+   est connecté, `make-remote` effectue automatiquement l'installation et la vérification
+   cryptographique, mais les essais fonctionnels du widget restent à faire et à rapporter
+   séparément.
+
+## Synchronisation de la skill et des scripts
+
+- Tout script modifié dans ce dépôt de widget doit rester neutre et réutilisable : aucun
+  identifiant, nom ou comportement propre à Memento Mori ne doit être figé dans une ressource
+  réutilisable. Les valeurs propres au projet sont déduites de sa configuration ou fournies par
+  variable d'environnement ou argument documenté.
+- Après toute modification d'un script du dépôt, la ressource homonyme de la skill
+  `make-android-widget` doit être mise à jour à l'octet près, permissions d'exécution comprises.
+- Après toute modification, quelle qu'elle soit, de la skill `make-android-widget`, sa totalité
+  doit être copiée à l'identique dans `skill/make-android-widget/` dans ce dépôt, sans exclure de
+  fichier et en préservant les permissions. Cette copie est versionnée avec le projet afin de
+  documenter exactement la skill utilisée.
+- `scripts/check-local` vérifie la présence de cette copie, qu'elle n'est pas ignorée par Git et
+  que ses scripts sont identiques à ceux du dépôt. Avant livraison, l'agent vérifie aussi la
+  totalité de l'arborescence copiée contre la source de la skill.
 
 ## État attendu à la fin d'une intervention
 
@@ -150,3 +186,17 @@ Le compte rendu doit distinguer clairement :
 - le résultat de GitHub Actions, si elle a été lancée ;
 - le résultat des essais sur appareil, s'ils ont été effectués ;
 - tout point restant non vérifié.
+
+## Constats de validation propres à ce dépôt
+
+- Un écran contenant le cercle fléché de chargement Glance signifie que la composition ne
+  s'est pas terminée ; ce n'est pas un aperçu acceptable du widget. Sur le téléphone de
+  validation, la cause était le crash de WorkManager 2.7.1 lors de la création de
+  `WorkDatabase`, corrigé par le forçage de WorkManager 2.11.2.
+- Une ancienne installation peut conserver le layout de chargement ou un ancien rendu.
+  Il faut installer l'APK distant correspondant aux changements, puis vérifier l'instance
+  posée sur le bureau ; le succès de `check-local` seul ne prouve pas le rendu sur appareil.
+- Le manifeste utilise `android:supportsRtl="true"` pour rendre valides les attributs de
+  fin (`TextAlign.End`, alignement `viewEnd`) utilisés par le rendu et son aperçu.
+- Le compte rendu doit distinguer le rendu Glance réel, l'aperçu XML, l'APK distant et les
+  essais effectivement réalisés sur le téléphone.

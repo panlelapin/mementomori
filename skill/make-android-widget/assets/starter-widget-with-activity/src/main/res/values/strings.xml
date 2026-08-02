@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">Widget avec</string>
+    <string name="widget_description">Widget avec activité</string>
+    <string name="widget_text">Widget avec</string>
+    <string name="activity_text">Widget activity</string>
+</resources>

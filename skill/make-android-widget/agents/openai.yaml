@@ -1,0 +1,4 @@
+interface:
+  display_name: "Make Android Widget"
+  short_description: "Kotlin widgets with strict local and remote CI"
+  default_prompt: "Use $make-android-widget to build a Kotlin widget with matching strict local and GitHub Actions quality gates."

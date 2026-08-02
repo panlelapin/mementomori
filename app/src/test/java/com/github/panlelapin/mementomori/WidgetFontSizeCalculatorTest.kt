@@ -2,6 +2,7 @@ package com.github.panlelapin.mementomori
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WidgetFontSizeCalculatorTest {
@@ -34,6 +35,26 @@ class WidgetFontSizeCalculatorTest {
         assertEquals(23f, square)
         assertEquals(19f, narrow)
         assertEquals(13f, short)
+    }
+
+    @Test
+    fun fontSizeGrowsWithWidgetSize() {
+        val small =
+            WidgetFontSizeCalculator.calculateSp(
+                widthDp = 55f,
+                heightDp = 110f,
+                fontScale = 1f,
+                labels = labels,
+            )
+        val large =
+            WidgetFontSizeCalculator.calculateSp(
+                widthDp = 220f,
+                heightDp = 220f,
+                fontScale = 1f,
+                labels = labels,
+            )
+
+        assertTrue(large > small)
     }
 
     @Test

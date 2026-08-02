@@ -89,7 +89,7 @@ class BasicWidget : GlanceAppWidget() {
             style =
                 TextStyle(
                     color = ColorProvider(Color(WIDGET_FOREGROUND_ARGB)),
-                    fontFamily = FontFamily("monospace"),
+                    fontFamily = FontFamily.Monospace,
                     fontSize = fontSizeSp.sp,
                     fontWeight = FontWeight.Medium,
                     textAlign = TextAlign.End,
