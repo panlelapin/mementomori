@@ -1,0 +1,217 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly SCRIPT_NAME=${0##*/}
+readonly LOG_FILE=${CHECK_LOCAL_LOG:-check-local.log}
+
+failures=0
+source_digest=''
+
+die() {
+    printf '%s: %s\n' "$SCRIPT_NAME" "$*" >&2
+    exit 1
+}
+
+need() {
+    command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+}
+
+current_source_digest() {
+    git status --porcelain=v1 --untracked-files=all | sha256sum | sed 's/[[:space:]].*$//'
+}
+
+# shellcheck disable=SC2317
+android_sdk_is_usable() {
+    local candidate=$1
+
+    [[ -x "$candidate/build-tools/36.0.0/aapt2" ]] &&
+        [[ -x "$candidate/build-tools/36.0.0/apksigner" ]] &&
+        [[ -x "$candidate/cmdline-tools/latest/bin/apkanalyzer" ]]
+}
+
+# shellcheck disable=SC2317
+jdk_is_usable() {
+    local candidate=$1
+    local version
+
+    [[ -x "$candidate/bin/java" ]] || return 1
+    version=$("$candidate/bin/java" -version 2>&1)
+    [[ "$version" == *'version "17.'* ]]
+}
+
+# shellcheck disable=SC2317
+resolve_toolchains() {
+    local candidate
+    local java_bin
+    local java_bin_dir
+    local local_sdk_root
+    local sdk_root=''
+    local jdk_root=''
+    local user_home=${HOME:-}
+    local -a sdk_candidates=()
+    local -a jdk_candidates=()
+
+    [[ -n "${ANDROID_HOME:-}" ]] && sdk_candidates+=("$ANDROID_HOME")
+    [[ -n "${ANDROID_SDK_ROOT:-}" ]] && sdk_candidates+=("$ANDROID_SDK_ROOT")
+    if [[ -f local.properties ]]; then
+        local_sdk_root=$(sed -n 's/^sdk\.dir=//p' local.properties)
+        [[ -n "$local_sdk_root" ]] && sdk_candidates+=("$local_sdk_root")
+    fi
+    if [[ -n "$user_home" ]]; then
+        sdk_candidates+=(
+            "$user_home/.local/share/android-sdk"
+            "$user_home/Android/Sdk"
+            "$user_home/.android/sdk"
+        )
+    fi
+    for candidate in "${sdk_candidates[@]}"; do
+        if android_sdk_is_usable "$candidate"; then
+            sdk_root=$candidate
+            break
+        fi
+    done
+    [[ -n "$sdk_root" ]] || {
+        printf 'Android SDK 36.0.0 with apkanalyzer was not found.\n' >&2
+        return 1
+    }
+
+    [[ -n "${JAVA_HOME:-}" ]] && jdk_candidates+=("$JAVA_HOME")
+    if command -v java >/dev/null 2>&1; then
+        java_bin=$(command -v java)
+        java_bin_dir=$(cd "$(dirname "$java_bin")" && pwd -P)
+        jdk_candidates+=("${java_bin_dir%/bin}")
+    fi
+    if [[ -n "$user_home" ]]; then
+        jdk_candidates+=(
+            "$user_home/.local/share/jdks/temurin-17"
+            "$user_home/.jdks/temurin-17"
+        )
+    fi
+    jdk_candidates+=(
+        "/usr/lib/jvm/java-17-openjdk-amd64"
+        "/usr/lib/jvm/temurin-17-jdk-amd64"
+    )
+    for candidate in "${jdk_candidates[@]}"; do
+        if jdk_is_usable "$candidate"; then
+            jdk_root=$candidate
+            break
+        fi
+    done
+    [[ -n "$jdk_root" ]] || {
+        printf 'JDK 17 was not found.\n' >&2
+        return 1
+    }
+
+    export ANDROID_HOME=$sdk_root
+    export ANDROID_SDK_ROOT=$sdk_root
+    export JAVA_HOME=$jdk_root
+    export PATH="$JAVA_HOME/bin:$PATH"
+    printf 'Using Android SDK: %s\nUsing JDK 17: %s\n' "$sdk_root" "$jdk_root"
+}
+
+run_check() {
+    local label=$1
+    shift
+
+    printf '\n===== CHECK: %s =====\n' "$label"
+    if "$@"; then
+        printf 'PASS: %s\n' "$label"
+    else
+        printf 'FAIL: %s\n' "$label" >&2
+        failures=$((failures + 1))
+    fi
+}
+
+# shellcheck disable=SC2317
+check_shell_syntax() {
+    bash -n scripts/check-github-stuff scripts/check-local scripts/make-remote scripts/verify-apk gradlew
+}
+
+# shellcheck disable=SC2317
+check_shellcheck() {
+    shellcheck scripts/check-github-stuff scripts/check-local scripts/make-remote scripts/verify-apk gradlew
+}
+
+# shellcheck disable=SC2317
+check_xml() {
+    python3 - <<'PY'
+from pathlib import Path
+from xml.etree import ElementTree
+
+for path in Path("app/src/main").rglob("*.xml"):
+    ElementTree.parse(path)
+print("All Android XML files parsed successfully.")
+PY
+}
+
+# shellcheck disable=SC2317
+check_workflow() {
+    python3 - "$WORKFLOW_FILE" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+path = Path(sys.argv[1])
+workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+triggers = workflow.get(True, workflow.get("on", {}))
+assert list(triggers) == ["workflow_dispatch"], triggers
+text = path.read_text(encoding="utf-8")
+assert "qualityCheck" in text
+assert "assembleRelease" in text
+assert "scripts/verify-apk" in text
+print("Workflow is YAML-valid and has the required manual release checks.")
+PY
+}
+
+# shellcheck disable=SC2317
+check_project_contract() {
+    [[ -x gradlew ]]
+    [[ -f gradle/wrapper/gradle-wrapper.jar ]]
+    grep -Eq '^distributionSha256Sum=' gradle/wrapper/gradle-wrapper.properties
+    rg -q 'minSdk = 34' app/build.gradle.kts
+    if rg -q 'com\.example\.widget' . --glob '!**/build/**'; then
+        return 1
+    fi
+    git check-ignore -q --no-index build/
+    git check-ignore -q --no-index check-local.log
+    [[ ! -L build ]]
+    [[ -x scripts/check-github-stuff && -x scripts/check-local && -x scripts/make-remote && -x scripts/verify-apk ]]
+}
+
+need bash
+need git
+need python3
+need rg
+need sha256sum
+need sed
+need shellcheck
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || die "run this check inside a Git worktree"
+cd "$ROOT"
+WORKFLOW_FILE=${WORKFLOW_FILE:-.github/workflows/android-widget.yml}
+[[ -f "$WORKFLOW_FILE" ]] || die "workflow not found: $WORKFLOW_FILE"
+
+mkdir -p "$(dirname "$LOG_FILE")"
+exec > >(tee "$LOG_FILE") 2>&1
+
+printf 'Starting complete local validation for %s.\n' "$ROOT"
+source_digest=$(current_source_digest)
+printf 'CHECK_LOCAL_SOURCE_DIGEST=%s\n' "$source_digest"
+
+run_check "shell syntax" check_shell_syntax
+run_check "ShellCheck" check_shellcheck
+run_check "JDK and Android SDK discovery" resolve_toolchains
+run_check "Gradle qualityCheck" ./gradlew qualityCheck --no-daemon --stacktrace
+run_check "Android XML parsing" check_xml
+run_check "workflow YAML and CI assertions" check_workflow
+run_check "project and script contract" check_project_contract
+
+if [[ "$failures" -eq 0 ]]; then
+    printf 'CHECK_LOCAL_RESULT=PASS\n'
+    exit 0
+fi
+
+printf 'CHECK_LOCAL_RESULT=FAIL\n'
+printf 'CHECK_LOCAL_FAILURES=%s\n' "$failures"
+exit 1

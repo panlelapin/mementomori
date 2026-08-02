@@ -5,6 +5,7 @@ set -Eeuo pipefail
 WORKFLOW_FILE=${WORKFLOW_FILE:-.github/workflows/android-widget.yml}
 ARTIFACT_NAME=${ARTIFACT_NAME:-android-widget-arm64-v8a}
 BUILD_DIR=${BUILD_DIR:-build}
+LOCAL_LOG=${LOCAL_LOG:-check-local.log}
 EXPECTED_PACKAGE=${EXPECTED_PACKAGE:-com.github.panlelapin.mementomori}
 COMMIT_MESSAGE=${COMMIT_MESSAGE:-Build Android widget remotely}
 POLL_SECONDS=${POLL_SECONDS:-10}
@@ -75,6 +76,78 @@ stage_source_changes() {
   git add -A -- .
 }
 
+resolve_toolchains() {
+  SDK_ROOT=''
+  SDK_CANDIDATES=()
+  [[ -n "${ANDROID_HOME:-}" ]] && SDK_CANDIDATES+=("$ANDROID_HOME")
+  [[ -n "${ANDROID_SDK_ROOT:-}" ]] && SDK_CANDIDATES+=("$ANDROID_SDK_ROOT")
+  if [[ -f local.properties ]]; then
+    LOCAL_SDK_ROOT=$(sed -n 's/^sdk\.dir=//p' local.properties)
+    [[ -n "$LOCAL_SDK_ROOT" ]] && SDK_CANDIDATES+=("$LOCAL_SDK_ROOT")
+  fi
+  USER_HOME=${HOME:-}
+  if [[ -n "$USER_HOME" ]]; then
+    SDK_CANDIDATES+=(
+      "$USER_HOME/.local/share/android-sdk"
+      "$USER_HOME/Android/Sdk"
+      "$USER_HOME/.android/sdk"
+    )
+  fi
+  for candidate in "${SDK_CANDIDATES[@]}"; do
+    if android_sdk_is_usable "$candidate"; then
+      SDK_ROOT=$candidate
+      break
+    fi
+  done
+  [[ -n "$SDK_ROOT" ]] || die "Android SDK not found; set ANDROID_HOME/ANDROID_SDK_ROOT, add local.properties sdk.dir, or install it in a standard user location"
+  export ANDROID_HOME=$SDK_ROOT
+  export ANDROID_SDK_ROOT=$SDK_ROOT
+
+  JDK_ROOT=''
+  JDK_CANDIDATES=()
+  [[ -n "${JAVA_HOME:-}" ]] && JDK_CANDIDATES+=("$JAVA_HOME")
+  if command -v java >/dev/null 2>&1; then
+    JAVA_BIN=$(command -v java)
+    JAVA_BIN_DIR=$(cd "$(dirname "$JAVA_BIN")" && pwd -P)
+    JDK_CANDIDATES+=("${JAVA_BIN_DIR%/bin}")
+  fi
+  USER_HOME=${HOME:-}
+  if [[ -n "$USER_HOME" ]]; then
+    JDK_CANDIDATES+=(
+      "$USER_HOME/.local/share/jdks/temurin-17"
+      "$USER_HOME/.jdks/temurin-17"
+    )
+  fi
+  JDK_CANDIDATES+=(
+    "/usr/lib/jvm/java-17-openjdk-amd64"
+    "/usr/lib/jvm/temurin-17-jdk-amd64"
+  )
+  for candidate in "${JDK_CANDIDATES[@]}"; do
+    if jdk_is_usable "$candidate"; then
+      JDK_ROOT=$candidate
+      break
+    fi
+  done
+  [[ -n "$JDK_ROOT" ]] || die "JDK 17 not found; set JAVA_HOME or install it in a standard user/system location"
+  export JAVA_HOME=$JDK_ROOT
+  export PATH="$JAVA_HOME/bin:$PATH"
+}
+
+require_local_check() {
+  local expected_digest
+  local actual_digest
+
+  [[ -f "$LOCAL_LOG" ]] || die "local check log not found: $LOCAL_LOG; run scripts/check-local first"
+  [[ "$(tail -n 1 "$LOCAL_LOG")" == 'CHECK_LOCAL_RESULT=PASS' ]] || \
+    die "the last local check did not pass; inspect $LOCAL_LOG"
+  expected_digest=$(sed -n 's/^CHECK_LOCAL_SOURCE_DIGEST=//p' "$LOCAL_LOG" | tail -n 1)
+  [[ -n "$expected_digest" ]] || die "$LOCAL_LOG has no worktree-state digest"
+  actual_digest=$(git status --porcelain=v1 --untracked-files=all | sha256sum | sed 's/[[:space:]].*$//')
+  [[ "$expected_digest" == "$actual_digest" ]] || \
+    die "$LOCAL_LOG is stale for the current worktree; run scripts/check-local again"
+  printf 'Local check passed and matches the current worktree (%s).\n' "$expected_digest"
+}
+
 need git
 need gh
 need find
@@ -87,9 +160,11 @@ need sleep
 need sha256sum
 need mktemp
 need sed
+need tail
 
 validate_relative_path WORKFLOW_FILE "$WORKFLOW_FILE"
 validate_relative_path BUILD_DIR "$BUILD_DIR"
+validate_relative_path LOCAL_LOG "$LOCAL_LOG"
 [[ "$POLL_SECONDS" =~ ^[1-9][0-9]*$ ]] || die "POLL_SECONDS must be a positive integer"
 [[ "$RUN_DISCOVERY_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || die "RUN_DISCOVERY_ATTEMPTS must be a positive integer"
 [[ -n "$ARTIFACT_NAME" && "$ARTIFACT_NAME" != *$'\n'* ]] || die "ARTIFACT_NAME must be non-empty and single-line"
@@ -99,61 +174,6 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || die "run this script inside
 cd "$ROOT"
 [[ -x scripts/verify-apk ]] || die "scripts/verify-apk is required"
 [[ -f "$WORKFLOW_FILE" ]] || die "workflow not found: $WORKFLOW_FILE"
-
-SDK_ROOT=''
-SDK_CANDIDATES=()
-[[ -n "${ANDROID_HOME:-}" ]] && SDK_CANDIDATES+=("$ANDROID_HOME")
-[[ -n "${ANDROID_SDK_ROOT:-}" ]] && SDK_CANDIDATES+=("$ANDROID_SDK_ROOT")
-if [[ -f local.properties ]]; then
-  LOCAL_SDK_ROOT=$(sed -n 's/^sdk\.dir=//p' local.properties)
-  [[ -n "$LOCAL_SDK_ROOT" ]] && SDK_CANDIDATES+=("$LOCAL_SDK_ROOT")
-fi
-USER_HOME=${HOME:-}
-if [[ -n "$USER_HOME" ]]; then
-  SDK_CANDIDATES+=(
-    "$USER_HOME/.local/share/android-sdk"
-    "$USER_HOME/Android/Sdk"
-    "$USER_HOME/.android/sdk"
-  )
-fi
-for candidate in "${SDK_CANDIDATES[@]}"; do
-  if android_sdk_is_usable "$candidate"; then
-    SDK_ROOT=$candidate
-    break
-  fi
-done
-[[ -n "$SDK_ROOT" ]] || die "Android SDK not found; set ANDROID_HOME/ANDROID_SDK_ROOT, add local.properties sdk.dir, or install it in a standard user location"
-export ANDROID_HOME=$SDK_ROOT
-export ANDROID_SDK_ROOT=$SDK_ROOT
-
-JDK_ROOT=''
-JDK_CANDIDATES=()
-[[ -n "${JAVA_HOME:-}" ]] && JDK_CANDIDATES+=("$JAVA_HOME")
-if command -v java >/dev/null 2>&1; then
-  JAVA_BIN=$(command -v java)
-  JAVA_BIN_DIR=$(cd "$(dirname "$JAVA_BIN")" && pwd -P)
-  JDK_CANDIDATES+=("${JAVA_BIN_DIR%/bin}")
-fi
-USER_HOME=${HOME:-}
-if [[ -n "$USER_HOME" ]]; then
-  JDK_CANDIDATES+=(
-    "$USER_HOME/.local/share/jdks/temurin-17"
-    "$USER_HOME/.jdks/temurin-17"
-  )
-fi
-JDK_CANDIDATES+=(
-  "/usr/lib/jvm/java-17-openjdk-amd64"
-  "/usr/lib/jvm/temurin-17-jdk-amd64"
-)
-for candidate in "${JDK_CANDIDATES[@]}"; do
-  if jdk_is_usable "$candidate"; then
-    JDK_ROOT=$candidate
-    break
-  fi
-done
-[[ -n "$JDK_ROOT" ]] || die "JDK 17 not found; set JAVA_HOME or install it in a standard user/system location"
-export JAVA_HOME=$JDK_ROOT
-export PATH="$JAVA_HOME/bin:$PATH"
 
 ORIGIN_URL=$(git remote get-url origin 2>/dev/null) || die "GitHub remote 'origin' is required"
 REPOSITORY=$(github_slug_from_url "$ORIGIN_URL") || die "origin is not a supported github.com URL: $ORIGIN_URL"
@@ -171,8 +191,8 @@ git check-ignore -q --no-index "$BUILD_DIR/" || \
 [[ ! -L "$ROOT/$BUILD_DIR" ]] || die "$BUILD_DIR must not be a symbolic link"
 
 [[ -x ./gradlew ]] || die "Gradle wrapper is required: ./gradlew"
-printf 'Running local strict quality gate before staging or committing.\n'
-./gradlew qualityCheck --no-daemon --stacktrace
+
+require_local_check
 
 stage_source_changes
 if [[ "$BOOTSTRAP" -eq 1 ]]; then
@@ -199,6 +219,7 @@ fi
 
 git push origin "HEAD:refs/heads/$BRANCH"
 HEAD_SHA=$(git rev-parse HEAD)
+resolve_toolchains
 
 mapfile -t PREVIOUS_RUN_IDS < <(
   gh run list --repo "$REPOSITORY" --workflow "$WORKFLOW_FILE" --branch "$BRANCH" \
