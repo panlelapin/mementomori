@@ -32,9 +32,9 @@ class WidgetFontSizeCalculatorTest {
                 labels = labels,
             )
 
-        assertEquals(23f, square)
-        assertEquals(19f, narrow)
-        assertEquals(13f, short)
+        assertEquals(34.5f, square)
+        assertEquals(28.5f, narrow)
+        assertEquals(19.5f, short)
     }
 
     @Test
@@ -60,7 +60,7 @@ class WidgetFontSizeCalculatorTest {
     @Test
     fun fontScaleIsCompensatedToKeepTextVisible() {
         assertEquals(
-            15f,
+            22.5f,
             WidgetFontSizeCalculator.calculateSp(
                 widthDp = 110f,
                 heightDp = 110f,

@@ -25,7 +25,6 @@ import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.padding
 import androidx.glance.text.FontFamily
-import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
@@ -91,7 +90,6 @@ class BasicWidget : GlanceAppWidget() {
                     color = ColorProvider(Color(WIDGET_FOREGROUND_ARGB)),
                     fontFamily = FontFamily.Monospace,
                     fontSize = fontSizeSp.sp,
-                    fontWeight = FontWeight.Medium,
                     textAlign = TextAlign.End,
                 ),
             maxLines = 1,

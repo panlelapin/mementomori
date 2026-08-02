@@ -48,14 +48,17 @@ durée décomposée. Aucun état de compteur n'est persisté.
 
 - Taille cible et taille minimale : **1 colonne × 2 lignes** (`1x2`).
 - Fond entièrement transparent.
-- Texte blanc, en police monospace explicitement demandée par Glance, de graisse moyenne.
+- Texte blanc, en police monospace explicitement demandée par Glance, sans graisse forcée.
+  Avec Glance/RemoteViews, demander une graisse moyenne peut sélectionner une police de
+  remplacement proportionnelle selon le lanceur ; la priorité est donc l'espacement strictement
+  monospace.
   Les trois lignes sont alignées à droite dans toute la largeur disponible et centrées
   verticalement dans le widget.
 - L'ensemble de la surface est cliquable et déclenche un recalcul suivi d'un nouveau
   rendu.
 - La taille de police n'est jamais une constante visuelle. Elle est calculée depuis la
   taille réelle fournie par `LocalSize`, le facteur de police Android, les marges et la
-  longueur de la ligne la plus longue.
+  longueur de la ligne la plus longue, puis agrandie par un facteur visuel de 1,5.
 - Le calcul doit employer des coefficients conservateurs pour la largeur d'un glyphe
   monospace et la hauteur d'une ligne. Les trois lignes doivent toujours rester visibles,
   complètes, sur une seule ligne chacune, sans coupure ni retour à la ligne.

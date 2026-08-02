@@ -10,6 +10,7 @@ internal object WidgetFontSizeCalculator {
     private const val MONOSPACE_GLYPH_WIDTH_EM = 0.68f
     private const val LINE_HEIGHT_EM = 1.35f
     private const val MINIMUM_FONT_SIZE_SP = 1f
+    private const val FONT_SIZE_MULTIPLIER = 1.5f
 
     fun calculateSp(
         widthDp: Float,
@@ -27,7 +28,7 @@ internal object WidgetFontSizeCalculator {
             availableWidthDp / (fontScale * longestLineLength * MONOSPACE_GLYPH_WIDTH_EM)
         val heightLimitedSp = availableHeightDp / (fontScale * LINE_COUNT * LINE_HEIGHT_EM)
 
-        return floor(minOf(a = widthLimitedSp, b = heightLimitedSp))
+        return (floor(minOf(a = widthLimitedSp, b = heightLimitedSp)) * FONT_SIZE_MULTIPLIER)
             .coerceAtLeast(MINIMUM_FONT_SIZE_SP)
     }
 }
