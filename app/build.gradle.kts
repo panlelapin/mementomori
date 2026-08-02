@@ -57,6 +57,7 @@ android {
 
 dependencies {
     implementation("androidx.glance:glance-appwidget:1.1.1")
+    implementation("androidx.work:work-runtime:2.11.2")
     testImplementation("junit:junit:4.13.2")
 }
 
