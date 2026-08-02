@@ -4,8 +4,8 @@
     android:layout_height="match_parent"
     android:background="@android:color/transparent"
     android:gravity="center"
-    android:padding="16dp"
+    android:padding="8dp"
     android:fontFamily="monospace"
     android:textColor="@color/widget_foreground"
     android:text="@string/widget_preview_text"
-    android:textSize="18sp" />
+    android:textSize="24sp" />

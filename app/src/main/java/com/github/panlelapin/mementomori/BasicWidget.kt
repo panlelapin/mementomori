@@ -1,20 +1,23 @@
 package com.github.panlelapin.mementomori
 
-import android.app.AlarmManager
-import android.app.PendingIntent
-import android.content.BroadcastReceiver
+import android.appwidget.AppWidgetManager
 import android.content.Context
-import android.content.Intent
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.LocalContext
+import androidx.glance.LocalSize
+import androidx.glance.action.ActionParameters
+import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
+import androidx.glance.appwidget.SizeMode
+import androidx.glance.appwidget.action.ActionCallback
+import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.provideContent
-import androidx.glance.appwidget.updateAll
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
@@ -25,60 +28,66 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.LocalTime
-import java.time.ZoneId
-import java.time.temporal.ChronoUnit
 
 private const val WIDGET_FOREGROUND_ARGB = 0xFFFFFFFF
-private const val ALARM_REQUEST_CODE = 2036
-private const val DAY_IN_MILLIS = 24 * 60 * 60 * 1000L
-private val TARGET_DATE: LocalDate = LocalDate.of(2036, 3, 17)
 
-/** Renders the basic home-screen widget. */
+/** Renders the home-screen widget at the exact size supplied by the launcher. */
 class BasicWidget : GlanceAppWidget() {
+    override val sizeMode: SizeMode = SizeMode.Exact
+
     override suspend fun provideGlance(
         context: Context,
         id: GlanceId,
     ) {
-        val countdown = Countdown.from(LocalDate.now())
+        val countdown = CountdownCalculator.from(LocalDate.now())
         provideContent { WidgetContent(countdown) }
     }
 
     @Suppress("FunctionNaming", "ktlint:standard:function-naming")
     @Composable
     private fun WidgetContent(countdown: Countdown) {
+        val labels = countdown.labels()
+        val widgetSize = LocalSize.current
+        val fontScale = LocalContext.current.resources.configuration.fontScale
+        val fontSize =
+            WidgetFontSizeCalculator.calculateSp(
+                widthDp = widgetSize.width.value,
+                heightDp = widgetSize.height.value,
+                fontScale = fontScale,
+                labels = labels,
+            )
+
         Box(
             modifier =
                 GlanceModifier
                     .fillMaxSize()
-                    .padding(16.dp),
+                    .padding(WIDGET_PADDING_DP.dp)
+                    .clickable(actionRunCallback<RefreshWidgetAction>()),
             contentAlignment = Alignment.Center,
         ) {
             Column(horizontalAlignment = Alignment.Horizontal.CenterHorizontally) {
-                CountdownText("${countdown.years}a")
-                CountdownText("${countdown.months}m")
-                CountdownText("${countdown.weeks}s")
+                labels.forEach { label -> CountdownText(label, fontSize) }
             }
         }
     }
 
     @Suppress("FunctionNaming", "ktlint:standard:function-naming")
     @Composable
-    private fun CountdownText(text: String) {
+    private fun CountdownText(
+        text: String,
+        fontSizeSp: Float,
+    ) {
         Text(
             text = text,
             style =
                 TextStyle(
                     color = ColorProvider(Color(WIDGET_FOREGROUND_ARGB)),
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 18.sp,
+                    fontSize = fontSizeSp.sp,
                     fontWeight = FontWeight.Medium,
                 ),
+            maxLines = 1,
         )
     }
 }
@@ -90,6 +99,16 @@ class BasicWidgetReceiver : GlanceAppWidgetReceiver() {
     override fun onEnabled(context: Context) {
         super.onEnabled(context)
         DailyUpdateReceiver.schedule(context)
+        refreshAllWidgets(context)
+    }
+
+    override fun onUpdate(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetIds: IntArray,
+    ) {
+        DailyUpdateReceiver.schedule(context)
+        super.onUpdate(context, appWidgetManager, appWidgetIds)
     }
 
     override fun onDisabled(context: Context) {
@@ -98,75 +117,13 @@ class BasicWidgetReceiver : GlanceAppWidgetReceiver() {
     }
 }
 
-/** Refreshes all widget instances after boot and at the daily 1 a.m. alarm. */
-class DailyUpdateReceiver : BroadcastReceiver() {
-    @Suppress("InjectDispatcher")
-    override fun onReceive(
+/** Recalculates and redraws the touched widget instance. */
+class RefreshWidgetAction : ActionCallback {
+    override suspend fun onAction(
         context: Context,
-        intent: Intent,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
     ) {
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            schedule(context)
-        }
-
-        val pendingResult = goAsync()
-        CoroutineScope(Dispatchers.Default).launch {
-            try {
-                BasicWidget().updateAll(context.applicationContext)
-            } finally {
-                pendingResult.finish()
-            }
-        }
-    }
-
-    /** Scheduling helpers for the widget's daily refresh. */
-    companion object {
-        /** Schedules the next 1 a.m. refresh and repeats it every 24 hours. */
-        fun schedule(context: Context) {
-            val alarmManager = context.getSystemService(AlarmManager::class.java)
-            alarmManager.setInexactRepeating(
-                AlarmManager.RTC_WAKEUP,
-                nextOneAmMillis(),
-                DAY_IN_MILLIS,
-                pendingIntent(context),
-            )
-        }
-
-        /** Cancels the daily refresh when the last widget is removed. */
-        fun cancel(context: Context) {
-            context.getSystemService(AlarmManager::class.java).cancel(pendingIntent(context))
-        }
-
-        private fun pendingIntent(context: Context): PendingIntent =
-            PendingIntent.getBroadcast(
-                context,
-                ALARM_REQUEST_CODE,
-                Intent(context, DailyUpdateReceiver::class.java),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-
-        private fun nextOneAmMillis(): Long {
-            val now = LocalDateTime.now()
-            var next = LocalDateTime.of(now.toLocalDate(), LocalTime.of(1, 0))
-            if (!now.isBefore(next)) {
-                next = next.plusDays(1)
-            }
-            return next.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        }
-    }
-}
-
-private data class Countdown(
-    val years: Long,
-    val months: Long,
-    val weeks: Long,
-) {
-    companion object {
-        fun from(today: LocalDate): Countdown =
-            Countdown(
-                years = ChronoUnit.YEARS.between(today, TARGET_DATE),
-                months = ChronoUnit.MONTHS.between(today, TARGET_DATE),
-                weeks = ChronoUnit.WEEKS.between(today, TARGET_DATE),
-            )
+        BasicWidget().update(context, glanceId)
     }
 }

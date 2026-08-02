@@ -5,6 +5,7 @@ plugins {
     id("com.android.application") version "9.2.1" apply false
     id("dev.detekt") version "2.0.0-alpha.5" apply false
     id("org.jetbrains.kotlin.plugin.compose") version "2.2.10" apply false
+    id("org.jetbrains.kotlinx.kover") version "0.9.8" apply false
 }
 
 val ktlint by configurations.creating
@@ -47,5 +48,11 @@ tasks.register<JavaExec>("ktlintFormat") {
 tasks.register("qualityCheck") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Run the strict Kotlin quality gate used locally and in CI."
-    dependsOn(ktlintCheck, ":app:detektRelease", ":app:lintRelease")
+    dependsOn(
+        ktlintCheck,
+        ":app:detektRelease",
+        ":app:koverVerifyDebug",
+        ":app:lintRelease",
+        ":app:testDebugUnitTest",
+    )
 }

@@ -1,3 +1,4 @@
 <resources>
+    <color name="app_icon_background">#FF202124</color>
     <color name="widget_foreground">#FFFFFFFF</color>
 </resources>

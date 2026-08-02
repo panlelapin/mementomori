@@ -1,9 +1,11 @@
 import dev.detekt.gradle.extensions.FailOnSeverity
+import kotlinx.kover.gradle.plugin.dsl.CoverageUnit
 
 plugins {
     id("com.android.application")
     id("dev.detekt")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlinx.kover")
 }
 
 android {
@@ -14,8 +16,8 @@ android {
         applicationId = "com.github.panlelapin.mementomori"
         minSdk = 34
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
 
         ndk {
             abiFilters += setOf("arm64-v8a")
@@ -55,6 +57,7 @@ android {
 
 dependencies {
     implementation("androidx.glance:glance-appwidget:1.1.1")
+    testImplementation("junit:junit:4.13.2")
 }
 
 detekt {
@@ -66,6 +69,26 @@ detekt {
     ignoreFailures = false
     failOnSeverity = FailOnSeverity.Warning
     basePath.set(rootProject.projectDir)
+}
+
+kover {
+    reports {
+        filters {
+            includes {
+                classes(
+                    "com.github.panlelapin.mementomori.AlarmTimeCalculator",
+                    "com.github.panlelapin.mementomori.CountdownCalculator",
+                    "com.github.panlelapin.mementomori.WidgetFontSizeCalculator",
+                )
+            }
+        }
+        verify {
+            rule("Pure calculation coverage") {
+                minBound(90)
+                minBound(80, CoverageUnit.BRANCH)
+            }
+        }
+    }
 }
 
 tasks.withType<dev.detekt.gradle.Detekt>().configureEach {

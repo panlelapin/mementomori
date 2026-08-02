@@ -19,4 +19,9 @@
     <issue id="ChromeOsAbiSupport">
         <ignore regexp="Missing x86_64 ABI support for ChromeOS" />
     </issue>
+
+    <!-- Adaptive icons require the v26 resource qualifier even though minSdk is 34. -->
+    <issue id="ObsoleteSdkInt">
+        <ignore path="src/main/res/mipmap-anydpi-v26" />
+    </issue>
 </lint>
