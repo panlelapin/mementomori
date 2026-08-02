@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Memento Mori</string>
+    <string name="widget_description">Memento Mori</string>
+    <string name="widget_text">Widget sans</string>
+</resources>

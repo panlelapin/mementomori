@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- API 37 is pre-release; target the latest stable Android release, API 36. -->
+    <issue id="OldTargetApi">
+        <ignore path="build.gradle.kts" />
+    </issue>
+
+    <!-- AGP 9.2 requires Gradle 9.4.1; a newer standalone Gradle is not compatible by default. -->
+    <issue id="AndroidGradlePluginVersion">
+        <ignore regexp="A newer version of Gradle than 9\.4\.1 is available: 9\.6\.1" />
+    </issue>
+
+    <!-- Keep the stable API 36 policy; all other dependency update findings remain enabled. -->
+    <issue id="GradleDependency">
+        <ignore regexp="compileSdk" />
+    </issue>
+
+    <!-- The release contract intentionally keeps the latent native ABI filter arm64-only. -->
+    <issue id="ChromeOsAbiSupport">
+        <ignore regexp="Missing x86_64 ABI support for ChromeOS" />
+    </issue>
+</lint>

@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly SCRIPT_NAME=${0##*/}
+
+die() {
+  printf '%s: %s\n' "$SCRIPT_NAME" "$*" >&2
+  exit 1
+}
+
+[[ $# -eq 4 ]] || die "usage: $SCRIPT_NAME APK EXPECTED_PACKAGE EXPECTED_MIN_SDK EXPECTED_TARGET_SDK"
+readonly APK=$1
+readonly EXPECTED_PACKAGE=$2
+readonly EXPECTED_MIN_SDK=$3
+readonly EXPECTED_TARGET_SDK=$4
+
+[[ -f "$APK" ]] || die "APK not found: $APK"
+[[ "$EXPECTED_PACKAGE" =~ ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$ ]] || die "invalid expected package: $EXPECTED_PACKAGE"
+[[ "$EXPECTED_MIN_SDK" =~ ^[0-9]+$ ]] || die "invalid expected min SDK: $EXPECTED_MIN_SDK"
+[[ "$EXPECTED_TARGET_SDK" =~ ^[0-9]+$ ]] || die "invalid expected target SDK: $EXPECTED_TARGET_SDK"
+
+SDK_ROOT=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}
+if [[ -z "$SDK_ROOT" && -f local.properties ]]; then
+  SDK_ROOT=$(sed -n 's/^sdk\.dir=//p' local.properties)
+fi
+[[ -n "$SDK_ROOT" ]] || die "ANDROID_HOME, ANDROID_SDK_ROOT, or local.properties sdk.dir is required"
+
+readonly AAPT2=${AAPT2:-$SDK_ROOT/build-tools/36.0.0/aapt2}
+readonly APKSIGNER=${APKSIGNER:-$SDK_ROOT/build-tools/36.0.0/apksigner}
+readonly APKANALYZER=${APKANALYZER:-$SDK_ROOT/cmdline-tools/latest/bin/apkanalyzer}
+[[ -x "$AAPT2" ]] || die "aapt2 not found or not executable: $AAPT2"
+[[ -x "$APKSIGNER" ]] || die "apksigner not found or not executable: $APKSIGNER"
+[[ -x "$APKANALYZER" ]] || die "apkanalyzer not found or not executable: $APKANALYZER"
+
+mapfile -t PACKAGE_LINES < <("$AAPT2" dump badging "$APK" | sed -n '/^package:/p')
+[[ "${#PACKAGE_LINES[@]}" -eq 1 ]] || die "expected exactly one package declaration"
+[[ "${PACKAGE_LINES[0]}" == "package: name='$EXPECTED_PACKAGE'"* ]] || \
+  die "unexpected package declaration: ${PACKAGE_LINES[0]}"
+
+ACTUAL_MIN_SDK=$("$APKANALYZER" manifest min-sdk "$APK")
+readonly ACTUAL_MIN_SDK
+ACTUAL_TARGET_SDK=$("$APKANALYZER" manifest target-sdk "$APK")
+readonly ACTUAL_TARGET_SDK
+DEBUGGABLE=$("$APKANALYZER" manifest debuggable "$APK")
+readonly DEBUGGABLE
+[[ "$ACTUAL_MIN_SDK" == "$EXPECTED_MIN_SDK" ]] || \
+  die "unexpected min SDK: $ACTUAL_MIN_SDK (expected $EXPECTED_MIN_SDK)"
+[[ "$ACTUAL_TARGET_SDK" == "$EXPECTED_TARGET_SDK" ]] || \
+  die "unexpected target SDK: $ACTUAL_TARGET_SDK (expected $EXPECTED_TARGET_SDK)"
+[[ "$DEBUGGABLE" == false ]] || die "release APK is debuggable: $DEBUGGABLE"
+
+"$APKSIGNER" verify --verbose --print-certs "$APK" >/dev/null || die "APK signature verification failed"
+printf 'APK verified: package=%s minSdk=%s targetSdk=%s debuggable=%s\n' \
+  "$EXPECTED_PACKAGE" "$ACTUAL_MIN_SDK" "$ACTUAL_TARGET_SDK" "$DEBUGGABLE"

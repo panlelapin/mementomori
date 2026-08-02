@@ -1,0 +1,311 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# Project-specific settings. Override these in the copied script when needed.
+WORKFLOW_FILE=${WORKFLOW_FILE:-.github/workflows/android-widget.yml}
+ARTIFACT_NAME=${ARTIFACT_NAME:-android-widget-arm64-v8a}
+BUILD_DIR=${BUILD_DIR:-build}
+EXPECTED_PACKAGE=${EXPECTED_PACKAGE:-com.github.panlelapin.mementomori}
+COMMIT_MESSAGE=${COMMIT_MESSAGE:-Build Android widget remotely}
+POLL_SECONDS=${POLL_SECONDS:-10}
+RUN_DISCOVERY_ATTEMPTS=${RUN_DISCOVERY_ATTEMPTS:-60}
+BOOTSTRAP=0
+readonly BOOTSTRAP_FIRST_COMMIT='Batman, because he has no parent'
+readonly BOOTSTRAP_SUCCESS_COMMIT='Basic widget pushed and compiled successfully'
+
+case "${1:-}" in
+  '') ;;
+  --bootstrap) BOOTSTRAP=1 ;;
+  *) printf 'Usage: %s [--bootstrap]\n' "$0" >&2; exit 2 ;;
+esac
+
+readonly SCRIPT_NAME=${0##*/}
+
+die() {
+  printf '%s: %s\n' "$SCRIPT_NAME" "$*" >&2
+  exit 1
+}
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+}
+
+validate_relative_path() {
+  local label=$1
+  local value=$2
+
+  [[ -n "$value" && "$value" != /* ]] || die "$label must be a non-empty repository-relative path"
+  [[ ! "$value" =~ (^|/)\.\.?(/|$) ]] || die "$label must not contain '.' or '..' path components: $value"
+  [[ "$value" != *$'\n'* ]] || die "$label must not contain a newline"
+}
+
+android_sdk_is_usable() {
+  local candidate=$1
+
+  [[ -x "$candidate/build-tools/36.0.0/aapt2" ]] &&
+    [[ -x "$candidate/build-tools/36.0.0/apksigner" ]] &&
+    [[ -x "$candidate/cmdline-tools/latest/bin/apkanalyzer" ]]
+}
+
+jdk_is_usable() {
+  local candidate=$1
+  local version
+
+  [[ -x "$candidate/bin/java" ]] || return 1
+  version=$("$candidate/bin/java" -version 2>&1)
+  [[ "$version" == *'version "17.'* ]]
+}
+
+github_slug_from_url() {
+  local url=${1%.git}
+  local slug
+
+  case "$url" in
+    https://github.com/*) slug=${url#https://github.com/} ;;
+    git@github.com:*) slug=${url#git@github.com:} ;;
+    ssh://git@github.com/*) slug=${url#ssh://git@github.com/} ;;
+    *) return 1 ;;
+  esac
+  [[ "$slug" =~ ^[^/]+/[^/]+$ ]] || return 1
+  printf '%s\n' "$slug"
+}
+
+stage_source_changes() {
+  # BUILD_DIR is required to be ignored and to contain no tracked files.
+  git add -A -- .
+}
+
+need git
+need gh
+need find
+need cp
+need mv
+need rm
+need mkdir
+need rmdir
+need sleep
+need sha256sum
+need mktemp
+need sed
+
+validate_relative_path WORKFLOW_FILE "$WORKFLOW_FILE"
+validate_relative_path BUILD_DIR "$BUILD_DIR"
+[[ "$POLL_SECONDS" =~ ^[1-9][0-9]*$ ]] || die "POLL_SECONDS must be a positive integer"
+[[ "$RUN_DISCOVERY_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || die "RUN_DISCOVERY_ATTEMPTS must be a positive integer"
+[[ -n "$ARTIFACT_NAME" && "$ARTIFACT_NAME" != *$'\n'* ]] || die "ARTIFACT_NAME must be non-empty and single-line"
+[[ "$EXPECTED_PACKAGE" =~ ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$ ]] || die "invalid EXPECTED_PACKAGE: $EXPECTED_PACKAGE"
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || die "run this script inside a Git worktree"
+cd "$ROOT"
+[[ -x scripts/verify-apk ]] || die "scripts/verify-apk is required"
+[[ -f "$WORKFLOW_FILE" ]] || die "workflow not found: $WORKFLOW_FILE"
+
+SDK_ROOT=''
+SDK_CANDIDATES=()
+[[ -n "${ANDROID_HOME:-}" ]] && SDK_CANDIDATES+=("$ANDROID_HOME")
+[[ -n "${ANDROID_SDK_ROOT:-}" ]] && SDK_CANDIDATES+=("$ANDROID_SDK_ROOT")
+if [[ -f local.properties ]]; then
+  LOCAL_SDK_ROOT=$(sed -n 's/^sdk\.dir=//p' local.properties)
+  [[ -n "$LOCAL_SDK_ROOT" ]] && SDK_CANDIDATES+=("$LOCAL_SDK_ROOT")
+fi
+USER_HOME=${HOME:-}
+if [[ -n "$USER_HOME" ]]; then
+  SDK_CANDIDATES+=(
+    "$USER_HOME/.local/share/android-sdk"
+    "$USER_HOME/Android/Sdk"
+    "$USER_HOME/.android/sdk"
+  )
+fi
+for candidate in "${SDK_CANDIDATES[@]}"; do
+  if android_sdk_is_usable "$candidate"; then
+    SDK_ROOT=$candidate
+    break
+  fi
+done
+[[ -n "$SDK_ROOT" ]] || die "Android SDK not found; set ANDROID_HOME/ANDROID_SDK_ROOT, add local.properties sdk.dir, or install it in a standard user location"
+export ANDROID_HOME=$SDK_ROOT
+export ANDROID_SDK_ROOT=$SDK_ROOT
+
+JDK_ROOT=''
+JDK_CANDIDATES=()
+[[ -n "${JAVA_HOME:-}" ]] && JDK_CANDIDATES+=("$JAVA_HOME")
+if command -v java >/dev/null 2>&1; then
+  JAVA_BIN=$(command -v java)
+  JAVA_BIN_DIR=$(cd "$(dirname "$JAVA_BIN")" && pwd -P)
+  JDK_CANDIDATES+=("${JAVA_BIN_DIR%/bin}")
+fi
+USER_HOME=${HOME:-}
+if [[ -n "$USER_HOME" ]]; then
+  JDK_CANDIDATES+=(
+    "$USER_HOME/.local/share/jdks/temurin-17"
+    "$USER_HOME/.jdks/temurin-17"
+  )
+fi
+JDK_CANDIDATES+=(
+  "/usr/lib/jvm/java-17-openjdk-amd64"
+  "/usr/lib/jvm/temurin-17-jdk-amd64"
+)
+for candidate in "${JDK_CANDIDATES[@]}"; do
+  if jdk_is_usable "$candidate"; then
+    JDK_ROOT=$candidate
+    break
+  fi
+done
+[[ -n "$JDK_ROOT" ]] || die "JDK 17 not found; set JAVA_HOME or install it in a standard user/system location"
+export JAVA_HOME=$JDK_ROOT
+export PATH="$JAVA_HOME/bin:$PATH"
+
+ORIGIN_URL=$(git remote get-url origin 2>/dev/null) || die "GitHub remote 'origin' is required"
+REPOSITORY=$(github_slug_from_url "$ORIGIN_URL") || die "origin is not a supported github.com URL: $ORIGIN_URL"
+gh auth status >/dev/null 2>&1 || die "GitHub CLI is not authenticated"
+gh repo view "$REPOSITORY" >/dev/null 2>&1 || die "GitHub repository is not accessible: $REPOSITORY"
+
+BRANCH=$(git branch --show-current)
+[[ -n "$BRANCH" ]] || die "detached HEAD is not supported"
+
+if [[ -n $(git ls-files -- "$BUILD_DIR" "$BUILD_DIR/**") ]]; then
+  die "$BUILD_DIR contains tracked files; remove them from Git before building"
+fi
+git check-ignore -q --no-index "$BUILD_DIR/" || \
+  die "$BUILD_DIR/ is not ignored; add it to .gitignore before building"
+[[ ! -L "$ROOT/$BUILD_DIR" ]] || die "$BUILD_DIR must not be a symbolic link"
+
+[[ -x ./gradlew ]] || die "Gradle wrapper is required: ./gradlew"
+printf 'Running local strict quality gate before staging or committing.\n'
+./gradlew qualityCheck --no-daemon --stacktrace
+
+stage_source_changes
+if [[ "$BOOTSTRAP" -eq 1 ]]; then
+  BOOTSTRAP_STARTED=0
+  BOOTSTRAP_FINISHED=0
+  while IFS= read -r subject; do
+    [[ "$subject" == "$BOOTSTRAP_FIRST_COMMIT" ]] && BOOTSTRAP_STARTED=1
+    [[ "$subject" == "$BOOTSTRAP_SUCCESS_COMMIT" ]] && BOOTSTRAP_FINISHED=1
+  done < <(git log --format=%s 2>/dev/null || true)
+
+  [[ "$BOOTSTRAP_FINISHED" -eq 0 ]] || die "bootstrap is already complete; use normal mode"
+  if [[ "$BOOTSTRAP_STARTED" -eq 0 ]]; then
+    git commit --allow-empty -m "$BOOTSTRAP_FIRST_COMMIT"
+  elif git diff --cached --quiet; then
+    printf 'Resuming bootstrap from existing commit %s.\n' "$(git rev-parse --short HEAD)"
+  else
+    git commit -m "$COMMIT_MESSAGE"
+  fi
+elif git diff --cached --quiet; then
+  printf 'No source changes to commit; building existing commit %s.\n' "$(git rev-parse --short HEAD)"
+else
+  git commit -m "$COMMIT_MESSAGE"
+fi
+
+git push origin "HEAD:refs/heads/$BRANCH"
+HEAD_SHA=$(git rev-parse HEAD)
+
+mapfile -t PREVIOUS_RUN_IDS < <(
+  gh run list --repo "$REPOSITORY" --workflow "$WORKFLOW_FILE" --branch "$BRANCH" \
+    --event workflow_dispatch --limit 100 --json databaseId --jq '.[].databaseId'
+)
+declare -A PREVIOUS_RUN=()
+for run_id in "${PREVIOUS_RUN_IDS[@]}"; do
+  PREVIOUS_RUN[$run_id]=1
+done
+
+gh workflow run "$WORKFLOW_FILE" --repo "$REPOSITORY" --ref "$BRANCH"
+printf 'Waiting for a new workflow run for %s.\n' "$HEAD_SHA"
+
+RUN_ID=''
+for ((attempt = 1; attempt <= RUN_DISCOVERY_ATTEMPTS; attempt++)); do
+  mapfile -t CANDIDATE_RUN_IDS < <(
+    gh run list --repo "$REPOSITORY" --workflow "$WORKFLOW_FILE" --branch "$BRANCH" \
+      --event workflow_dispatch --commit "$HEAD_SHA" --limit 20 \
+      --json databaseId --jq '.[].databaseId'
+  )
+  for candidate in "${CANDIDATE_RUN_IDS[@]}"; do
+    if [[ -z "${PREVIOUS_RUN[$candidate]+present}" ]]; then
+      RUN_ID=$candidate
+      break 2
+    fi
+  done
+  sleep "$POLL_SECONDS"
+done
+[[ -n "$RUN_ID" ]] || die "could not find the newly dispatched workflow run for $HEAD_SHA"
+
+while :; do
+  IFS=$'\t' read -r STATUS CONCLUSION < <(
+    gh run view "$RUN_ID" --repo "$REPOSITORY" --json status,conclusion \
+      --jq '[.status, (.conclusion // "")] | @tsv'
+  )
+  printf 'Run %s: %s%s\n' "$RUN_ID" "$STATUS" "${CONCLUSION:+ ($CONCLUSION)}"
+  if [[ "$STATUS" == completed ]]; then
+    if [[ "$CONCLUSION" != success ]]; then
+      gh run view "$RUN_ID" --repo "$REPOSITORY" --log-failed >&2 || true
+      die "workflow failed: ${CONCLUSION:-unknown conclusion}"
+    fi
+    break
+  fi
+  sleep "$POLL_SECONDS"
+done
+
+DOWNLOAD_DIR=''
+STAGING_DIR=''
+BACKUP_DIR=''
+BUILD_PATH=$ROOT/$BUILD_DIR
+BUILD_PARENT=${BUILD_PATH%/*}
+[[ "$BUILD_PARENT" != "$BUILD_PATH" ]] || BUILD_PARENT=$ROOT
+mkdir -p "$BUILD_PARENT"
+
+cleanup() {
+  local status=$?
+  trap - EXIT INT TERM
+  if [[ -n "$BACKUP_DIR" && -d "$BACKUP_DIR" && ! -e "$BUILD_PATH" ]]; then
+    mv -- "$BACKUP_DIR" "$BUILD_PATH" || true
+    BACKUP_DIR=''
+  fi
+  [[ -z "$DOWNLOAD_DIR" || ! -d "$DOWNLOAD_DIR" ]] || rm -rf -- "$DOWNLOAD_DIR"
+  [[ -z "$STAGING_DIR" || ! -d "$STAGING_DIR" ]] || rm -rf -- "$STAGING_DIR"
+  [[ -z "$BACKUP_DIR" || ! -d "$BACKUP_DIR" ]] || rm -rf -- "$BACKUP_DIR"
+  exit "$status"
+}
+trap cleanup EXIT INT TERM
+
+DOWNLOAD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/make-remote-download.XXXXXX")
+gh run download "$RUN_ID" --repo "$REPOSITORY" --name "$ARTIFACT_NAME" --dir "$DOWNLOAD_DIR"
+
+mapfile -t APKS < <(find "$DOWNLOAD_DIR" -type f -name '*.apk' -print)
+mapfile -t CHECKSUMS < <(find "$DOWNLOAD_DIR" -type f -name '*.sha256' -print)
+[[ "${#APKS[@]}" -eq 1 ]] || die "expected exactly one APK, found ${#APKS[@]}"
+[[ "${#CHECKSUMS[@]}" -eq 1 ]] || die "expected exactly one SHA-256 file, found ${#CHECKSUMS[@]}"
+[[ ${APKS[0]%/*} == "${CHECKSUMS[0]%/*}" ]] || die "APK and checksum must be in the same artifact directory"
+(
+  cd "${APKS[0]%/*}"
+sha256sum -c "${CHECKSUMS[0]##*/}"
+) || die "APK SHA-256 verification failed"
+scripts/verify-apk "${APKS[0]}" "$EXPECTED_PACKAGE" 34 36
+
+STAGING_DIR=$(mktemp -d "$BUILD_PARENT/.make-remote-build.XXXXXX")
+cp -- "${APKS[0]}" "$STAGING_DIR/${APKS[0]##*/}"
+
+if [[ -e "$BUILD_PATH" && ! -d "$BUILD_PATH" ]]; then
+  die "$BUILD_DIR exists but is not a directory"
+fi
+if [[ -d "$BUILD_PATH" ]]; then
+  BACKUP_DIR=$(mktemp -d "$BUILD_PARENT/.make-remote-backup.XXXXXX")
+  rmdir "$BACKUP_DIR"
+  mv -- "$BUILD_PATH" "$BACKUP_DIR"
+fi
+mv -- "$STAGING_DIR" "$BUILD_PATH"
+STAGING_DIR=''
+if [[ -n "$BACKUP_DIR" ]]; then
+  rm -rf -- "$BACKUP_DIR"
+  BACKUP_DIR=''
+fi
+
+APK=$BUILD_PATH/${APKS[0]##*/}
+printf 'APK: %s\nVerified SHA-256: ' "$APK"
+sha256sum "$APK"
+
+if [[ "$BOOTSTRAP" -eq 1 ]]; then
+  git commit --allow-empty -m "$BOOTSTRAP_SUCCESS_COMMIT"
+  git push origin "HEAD:refs/heads/$BRANCH"
+fi
+
+printf 'GitHub Actions run: https://github.com/%s/actions/runs/%s\n' "$REPOSITORY" "$RUN_ID"

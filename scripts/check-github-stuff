@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly SCRIPT_NAME=${0##*/}
+
+die() {
+  printf '%s: %s\n' "$SCRIPT_NAME" "$*" >&2
+  exit 1
+}
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+}
+
+ask_yes_no() {
+  local prompt=$1
+  local answer
+
+  [[ -t 0 ]] || die "cannot ask an interactive question because standard input is not a terminal"
+  while :; do
+    read -r -p "$prompt [y/N] " answer || die "standard input closed while waiting for an answer"
+    case "${answer,,}" in
+      y|yes) return 0 ;;
+      n|no|'') return 1 ;;
+      *) printf 'Please answer yes or no.\n' >&2 ;;
+    esac
+  done
+}
+
+github_slug_from_url() {
+  local url=${1%.git}
+  local slug
+
+  case "$url" in
+    https://github.com/*) slug=${url#https://github.com/} ;;
+    git@github.com:*) slug=${url#git@github.com:} ;;
+    ssh://git@github.com/*) slug=${url#ssh://git@github.com/} ;;
+    *) return 1 ;;
+  esac
+  [[ "$slug" =~ ^[^/]+/[^/]+$ ]] || return 1
+  printf '%s\n' "$slug"
+}
+
+need gh
+need git
+need find
+need sed
+need sort
+
+gh auth status >/dev/null 2>&1 || die "gh is not authenticated; run 'gh auth login' first"
+
+ROOT=$(pwd -P)
+readonly ROOT
+readonly NAME=${ROOT##*/}
+[[ -n "$NAME" && "$NAME" != . && "$NAME" != / ]] || die "could not determine the current directory name"
+[[ "$NAME" =~ ^[A-Za-z0-9._-]+$ ]] || die "current directory name is not a valid GitHub repository name: $NAME"
+
+LOCAL=0
+GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+if [[ -n "$GIT_ROOT" ]]; then
+  GIT_ROOT=$(cd "$GIT_ROOT" && pwd -P)
+fi
+if [[ "$GIT_ROOT" == "$ROOT" ]]; then
+  LOCAL=1
+fi
+
+ORIGIN_URL=''
+ORIGIN_SLUG=''
+if [[ "$LOCAL" -eq 1 ]]; then
+  ORIGIN_URL=$(git remote get-url origin 2>/dev/null || true)
+  ORIGIN_SLUG=$(github_slug_from_url "$ORIGIN_URL" 2>/dev/null || true)
+fi
+
+printf 'Checking accessible GitHub repositories named %s.\n' "$NAME"
+REMOTE_LIST=$(gh api --paginate 'user/repos?affiliation=owner,collaborator,organization_member&per_page=100' \
+  --jq ".[] | select((.name | ascii_downcase) == (\"$NAME\" | ascii_downcase)) | .full_name") || \
+  die "could not list accessible GitHub repositories"
+mapfile -t REMOTES < <(printf '%s\n' "$REMOTE_LIST" | sed '/^$/d' | sort -u)
+
+REMOTE=''
+if [[ -n "$ORIGIN_SLUG" ]]; then
+  for candidate in "${REMOTES[@]}"; do
+    if [[ "${candidate,,}" == "${ORIGIN_SLUG,,}" ]]; then
+      REMOTE=$candidate
+      break
+    fi
+  done
+fi
+
+if [[ -z "$REMOTE" ]]; then
+  case "${#REMOTES[@]}" in
+    0) ;;
+    1) REMOTE=${REMOTES[0]} ;;
+    *)
+      [[ -t 0 ]] || die "several matching repositories exist and no interactive terminal is available"
+      printf 'Several accessible GitHub repositories have the name %s:\n' "$NAME"
+      select candidate in "${REMOTES[@]}"; do
+        [[ -n "${candidate:-}" ]] || {
+          printf 'Choose a listed repository.\n' >&2
+          continue
+        }
+        REMOTE=$candidate
+        break
+      done
+      ;;
+  esac
+fi
+
+if [[ -n "$REMOTE" && "$LOCAL" -eq 0 ]]; then
+  [[ -z $(find "$ROOT" -mindepth 1 -maxdepth 1 -print -quit) ]] || \
+    die "GitHub repository $REMOTE exists, but the current directory is not empty; refusing to clone over files"
+  gh repo clone "$REMOTE" "$ROOT"
+  printf 'Cloned %s into %s.\n' "$REMOTE" "$ROOT"
+  exit 0
+fi
+
+if [[ -n "$REMOTE" && "$LOCAL" -eq 1 ]]; then
+  if [[ "${ORIGIN_SLUG,,}" == "${REMOTE,,}" ]]; then
+    printf 'Local Git repository is linked to GitHub origin %s.\n' "$REMOTE"
+    exit 0
+  fi
+
+  EXPECTED_URL=$(gh repo view "$REMOTE" --json url --jq .url)
+  if [[ -n "$ORIGIN_URL" ]]; then
+    printf 'Current origin: %s\nExpected GitHub repository: %s\n' "$ORIGIN_URL" "$REMOTE"
+    ask_yes_no "Replace origin with $EXPECTED_URL?" || die "origin was not changed"
+    git remote set-url origin "$EXPECTED_URL"
+  else
+    ask_yes_no "Add $EXPECTED_URL as origin?" || die "origin was not added"
+    git remote add origin "$EXPECTED_URL"
+  fi
+  printf 'Local Git repository is now linked to %s.\n' "$REMOTE"
+  exit 0
+fi
+
+if [[ "$LOCAL" -eq 1 ]]; then
+  if [[ -n "$ORIGIN_SLUG" && "${ORIGIN_SLUG##*/}" == "$NAME" ]] && \
+    gh repo view "$ORIGIN_SLUG" >/dev/null 2>&1; then
+    printf 'Local Git repository is linked to GitHub origin %s.\n' "$ORIGIN_SLUG"
+    exit 0
+  fi
+
+  if [[ -n "$ORIGIN_URL" ]]; then
+    printf 'Current origin does not identify an accessible same-name GitHub repository: %s\n' "$ORIGIN_URL"
+    ask_yes_no "Create a private GitHub repository named $NAME and preserve the current remote as origin-before-github?" || \
+      die "remote repository was not created"
+    git remote get-url origin-before-github >/dev/null 2>&1 && \
+      die "cannot preserve origin because remote 'origin-before-github' already exists"
+    git remote rename origin origin-before-github
+    if ! gh repo create "$NAME" --private --source="$ROOT" --remote=origin; then
+      git remote rename origin-before-github origin || true
+      die "could not create or link the GitHub repository"
+    fi
+  else
+    ask_yes_no "Create a private GitHub repository named $NAME and add it as origin?" || \
+      die "remote repository was not created"
+    gh repo create "$NAME" --private --source="$ROOT" --remote=origin
+  fi
+
+  CREATED_SLUG=$(github_slug_from_url "$(git remote get-url origin)") || \
+    die "the created origin is not a github.com URL"
+  gh repo view "$CREATED_SLUG" >/dev/null 2>&1 || die "the created GitHub repository is not accessible"
+  printf 'Created private GitHub repository %s and added origin. No push was performed.\n' "$CREATED_SLUG"
+  exit 0
+fi
+
+die "no accessible same-name GitHub repository and no local Git repository; nothing to clone or link"
