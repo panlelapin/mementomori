@@ -27,6 +27,7 @@ import androidx.glance.layout.padding
 import androidx.glance.text.FontFamily
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
+import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import java.time.LocalDate
@@ -84,12 +85,14 @@ class BasicWidget : GlanceAppWidget() {
     ) {
         Text(
             text = text,
+            modifier = GlanceModifier.fillMaxWidth(),
             style =
                 TextStyle(
                     color = ColorProvider(Color(WIDGET_FOREGROUND_ARGB)),
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = FontFamily("monospace"),
                     fontSize = fontSizeSp.sp,
                     fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.End,
                 ),
             maxLines = 1,
         )
