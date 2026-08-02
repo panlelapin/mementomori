@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_countdown"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/transparent"
-    android:gravity="end|center_vertical"
-    android:padding="8dp"
     android:fontFamily="@font/input_mono_regular"
-    android:textColor="@color/widget_foreground"
+    android:gravity="end|center_vertical"
+    android:includeFontPadding="false"
+    android:lineSpacingMultiplier="1.0"
+    android:padding="8dp"
     android:text="@string/widget_preview_text"
-    android:textSize="11sp" />
+    android:textColor="@color/widget_foreground"
+    android:textSize="12sp" />

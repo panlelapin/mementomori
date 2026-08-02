@@ -4,7 +4,6 @@ import kotlinx.kover.gradle.plugin.dsl.CoverageUnit
 plugins {
     id("com.android.application")
     id("dev.detekt")
-    id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlinx.kover")
 }
 
@@ -22,10 +21,6 @@ android {
         ndk {
             abiFilters += setOf("arm64-v8a")
         }
-    }
-
-    buildFeatures {
-        compose = true
     }
 
     buildTypes {
@@ -56,8 +51,6 @@ android {
 }
 
 dependencies {
-    implementation("androidx.glance:glance-appwidget:1.1.1")
-    implementation("androidx.work:work-runtime:2.11.2")
     testImplementation("junit:junit:4.13.2")
 }
 

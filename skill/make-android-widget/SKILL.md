@@ -143,18 +143,16 @@ For each starter:
 
 Use the modern widget sizing and feature APIs available on Android 14 directly. Add responsive/exact Glance layouts, dynamic color, generated Android 15 previews, reconfiguration, interactions, or state only when the product needs them. Do not add compatibility branches below API 34.
 
-For the Memento Mori implementation, keep the Glance composition and the static XML
-preview visually consistent: use the same monospace family, right/end alignment, thin
-Unicode spacing before suffixes, and representative non-placeholder values in the preview.
-Its current target and minimum widget size is 1x2; keep `targetCellWidth="1"`,
-`targetCellHeight="2"`, and matching 55dp by 110dp minimum dimensions in the provider
-metadata. The font-size calculation must still use the runtime `LocalSize` and grow for
-larger widget sizes.
-Use `glance_default_loading_layout` only as `initialLayout`; never treat a loading layout or
-widget preview as the calculated widget output. With Glance 1.1.1, pin
-`androidx.work:work-runtime:2.11.2` when the device target exposes the observed WorkManager
-2.7.1 `WorkDatabase` startup crash, and update dependency verification metadata together
-with that pin.
+For the Memento Mori implementation, use a native `RemoteViews` `TextView` with the bundled
+`@font/input_mono_regular` resource rather than Glance's generic font-family span. This makes
+the exact Input Mono glyphs part of the APK and prevents the launcher from selecting a
+proportional fallback. The real layout and static XML preview must use that same font resource,
+right/end alignment, thin Unicode spacing before suffixes, and representative non-placeholder
+values in the preview. Its current target and minimum widget size is 1x2; keep
+`targetCellWidth="1"`, `targetCellHeight="2"`, and matching 55dp by 110dp minimum dimensions
+in the provider metadata. The pure font-size calculation must use the current AppWidget option
+dimensions and grow for larger widget sizes. Use the real `widget_content` layout as
+`initialLayout`; never treat the static widget preview as the calculated widget output.
 
 ## Enforce one strict Kotlin quality gate
 

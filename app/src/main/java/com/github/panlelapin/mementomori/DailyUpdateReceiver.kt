@@ -7,10 +7,6 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import androidx.glance.appwidget.updateAll
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import java.time.LocalTime
 import java.time.ZonedDateTime
 
@@ -98,13 +94,8 @@ private fun hasActiveWidgets(context: Context): Boolean {
 }
 
 @Suppress("InjectDispatcher")
-internal fun BroadcastReceiver.refreshAllWidgets(context: Context) {
-    val pendingResult = goAsync()
-    CoroutineScope(Dispatchers.Default).launch {
-        try {
-            BasicWidget().updateAll(context.applicationContext)
-        } finally {
-            pendingResult.finish()
-        }
-    }
+internal fun refreshAllWidgets(context: Context) {
+    val appWidgetManager = AppWidgetManager.getInstance(context)
+    val provider = ComponentName(context, BasicWidgetReceiver::class.java)
+    BasicWidgetRenderer.update(context, appWidgetManager.getAppWidgetIds(provider))
 }

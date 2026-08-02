@@ -48,17 +48,16 @@ durée décomposée. Aucun état de compteur n'est persisté.
 
 - Taille cible et taille minimale : **1 colonne × 2 lignes** (`1x2`).
 - Fond entièrement transparent.
-- Texte blanc, en police monospace explicitement demandée par Glance, sans graisse forcée.
-  Avec Glance/RemoteViews, demander une graisse moyenne peut sélectionner une police de
-  remplacement proportionnelle selon le lanceur ; la priorité est donc l'espacement strictement
-  monospace.
+- Texte blanc dans la police embarquée `Input Mono Regular`, sans graisse forcée. Le rendu réel
+  utilise un `TextView` `RemoteViews` natif avec `@font/input_mono_regular`, pas la famille
+  générique de Glance : aucun lanceur ne choisit une police de remplacement proportionnelle.
   Les trois lignes sont alignées à droite dans toute la largeur disponible et centrées
   verticalement dans le widget.
 - L'ensemble de la surface est cliquable et déclenche un recalcul suivi d'un nouveau
   rendu.
 - La taille de police n'est jamais une constante visuelle. Elle est calculée depuis la
   taille réelle fournie par `LocalSize`, le facteur de police Android, les marges et la
-  longueur de la ligne la plus longue, puis agrandie par un facteur visuel de 1,5.
+  longueur de la ligne la plus longue, puis agrandie par un facteur visuel de 1,35.
 - Le calcul doit employer des coefficients conservateurs pour la largeur d'un glyphe
   monospace et la hauteur d'une ligne. Les trois lignes doivent toujours rester visibles,
   complètes, sur une seule ligne chacune, sans coupure ni retour à la ligne.
@@ -79,7 +78,7 @@ il devient invisible ou entièrement blanc sur certains lanceurs.
 ## Architecture et fichiers importants
 
 - `app/src/main/java/com/github/panlelapin/mementomori/BasicWidget.kt` contient le rendu
-  Glance, le receiver AppWidget et l'action exécutée au toucher.
+  `RemoteViews`, le receiver AppWidget et l'action exécutée au toucher.
 - `app/src/main/java/com/github/panlelapin/mementomori/DailyUpdateReceiver.kt` contient le
   receiver des événements temporels, la gestion de l'alarme et le calcul pur de la
   prochaine heure locale de 01:00.
@@ -98,16 +97,12 @@ il devient invisible ou entièrement blanc sur certains lanceurs.
 
 ## Socle Android
 
-- Kotlin et Jetpack Glance, sans activité.
+- Kotlin et les APIs Android AppWidget/RemoteViews, sans activité.
 - `applicationId` et namespace : `com.github.panlelapin.mementomori`.
 - `minSdk = 34` (Android 14), `targetSdk = 36`, `compileSdk = 36`.
 - Java/Kotlin JVM 17.
-- `androidx.glance:glance-appwidget:1.1.1` est utilisé avec un forçage explicite de
-  `androidx.work:work-runtime:2.11.2`. La version transitive 2.7.1 provoquait sur le
-  téléphone de validation un crash `Failed to create an instance of
-  androidx.work.impl.WorkDatabase`, laissant Glance afficher indéfiniment son cercle de
-  chargement. Toute modification de cette version exige la mise à jour contrôlée de la
-  vérification Gradle.
+- Le rendu ne dépend pas de Glance ni de WorkManager. La police et les valeurs sont transmises
+  dans un `RemoteViews` natif, afin que le `TextView` charge la police embarquée depuis l'APK.
 - Un filtre `arm64-v8a` est configuré pour d'éventuelles dépendances natives. Tant que
   l'application reste entièrement Kotlin et ne contient aucun fichier `.so`, l'APK demeure
   en pratique indépendant de l'ABI ; ne pas prétendre le contraire.
@@ -118,7 +113,7 @@ il devient invisible ou entièrement blanc sur certains lanceurs.
   donc `testDebugUnitTest` et `koverVerifyDebug`, tout en conservant `detektRelease` et
   `lintRelease` pour contrôler le code destiné à l'APK.
 - Kover mesure uniquement les classes de calcul pur. Le contrôle impose au minimum 90 %
-  de lignes et 80 % de branches couvertes ; le code Android et le code Glance généré ne
+  de lignes et 80 % de branches couvertes ; le code Android et le code `RemoteViews` ne
   doivent pas servir à produire une revendication de couverture artificielle.
 
 ## Règles de modification
@@ -130,11 +125,11 @@ il devient invisible ou entièrement blanc sur certains lanceurs.
   des tests JVM.
 - Toute modification du comportement doit mettre à jour les tests et ce document si ses
   garanties changent.
-- Ne jamais considérer l'aperçu XML comme le rendu réel : seul Glance produit les valeurs
-  calculées.
-- `basic_widget_info.xml` utilise `@layout/glance_default_loading_layout` pour le chargement
-  initial ; `widget_preview.xml` sert à l'aperçu statique et ne doit jamais être confondu
-  avec le rendu Glance.
+- Ne jamais considérer l'aperçu XML comme le rendu réel : seul `BasicWidgetRenderer` produit les
+  valeurs calculées.
+- `basic_widget_info.xml` utilise `@layout/widget_content` pour le chargement initial ;
+  `widget_preview.xml` sert à l'aperçu statique et ne doit jamais être confondu avec le rendu
+  calculé.
 - Ne jamais compiler d'APK Android sur la machine locale.
 
 ## Validation et livraison obligatoires
@@ -192,14 +187,13 @@ Le compte rendu doit distinguer clairement :
 
 ## Constats de validation propres à ce dépôt
 
-- Un écran contenant le cercle fléché de chargement Glance signifie que la composition ne
-  s'est pas terminée ; ce n'est pas un aperçu acceptable du widget. Sur le téléphone de
-  validation, la cause était le crash de WorkManager 2.7.1 lors de la création de
-  `WorkDatabase`, corrigé par le forçage de WorkManager 2.11.2.
+- Un rendu qui ne contient pas les trois valeurs calculées n'est pas acceptable. Le widget
+  utilise désormais `RemoteViews` directement : il ne dépend plus de la composition ni du
+  chargement Glance.
 - Une ancienne installation peut conserver le layout de chargement ou un ancien rendu.
   Il faut installer l'APK distant correspondant aux changements, puis vérifier l'instance
   posée sur le bureau ; le succès de `check-local` seul ne prouve pas le rendu sur appareil.
 - Le manifeste utilise `android:supportsRtl="true"` pour rendre valides les attributs de
   fin (`TextAlign.End`, alignement `viewEnd`) utilisés par le rendu et son aperçu.
-- Le compte rendu doit distinguer le rendu Glance réel, l'aperçu XML, l'APK distant et les
+- Le compte rendu doit distinguer le rendu RemoteViews réel, l'aperçu XML, l'APK distant et les
   essais effectivement réalisés sur le téléphone.

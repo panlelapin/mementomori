@@ -1,106 +1,22 @@
 package com.github.panlelapin.mementomori
 
+import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProvider
 import android.content.Context
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.glance.GlanceId
-import androidx.glance.GlanceModifier
-import androidx.glance.LocalContext
-import androidx.glance.LocalSize
-import androidx.glance.action.ActionParameters
-import androidx.glance.action.clickable
-import androidx.glance.appwidget.GlanceAppWidget
-import androidx.glance.appwidget.GlanceAppWidgetReceiver
-import androidx.glance.appwidget.SizeMode
-import androidx.glance.appwidget.action.ActionCallback
-import androidx.glance.appwidget.action.actionRunCallback
-import androidx.glance.appwidget.provideContent
-import androidx.glance.layout.Alignment
-import androidx.glance.layout.Box
-import androidx.glance.layout.Column
-import androidx.glance.layout.fillMaxSize
-import androidx.glance.layout.fillMaxWidth
-import androidx.glance.layout.padding
-import androidx.glance.text.FontFamily
-import androidx.glance.text.Text
-import androidx.glance.text.TextAlign
-import androidx.glance.text.TextStyle
-import androidx.glance.unit.ColorProvider
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
+import android.util.TypedValue
+import android.widget.RemoteViews
 import java.time.LocalDate
 
-private const val WIDGET_FOREGROUND_ARGB = 0xFFFFFFFF
+private const val REFRESH_ACTION = "com.github.panlelapin.mementomori.action.REFRESH_WIDGET"
+private const val DEFAULT_WIDGET_WIDTH_DP = 55f
+private const val DEFAULT_WIDGET_HEIGHT_DP = 110f
 
-/** Renders the home-screen widget at the exact size supplied by the launcher. */
-class BasicWidget : GlanceAppWidget() {
-    override val sizeMode: SizeMode = SizeMode.Exact
-
-    override suspend fun provideGlance(
-        context: Context,
-        id: GlanceId,
-    ) {
-        val countdown = CountdownCalculator.from(LocalDate.now())
-        provideContent { WidgetContent(countdown) }
-    }
-
-    @Suppress("FunctionNaming", "ktlint:standard:function-naming")
-    @Composable
-    private fun WidgetContent(countdown: Countdown) {
-        val labels = countdown.labels()
-        val widgetSize = LocalSize.current
-        val fontScale = LocalContext.current.resources.configuration.fontScale
-        val fontSize =
-            WidgetFontSizeCalculator.calculateSp(
-                widthDp = widgetSize.width.value,
-                heightDp = widgetSize.height.value,
-                fontScale = fontScale,
-                labels = labels,
-            )
-
-        Box(
-            modifier =
-                GlanceModifier
-                    .fillMaxSize()
-                    .padding(WIDGET_PADDING_DP.dp)
-                    .clickable(actionRunCallback<RefreshWidgetAction>()),
-            contentAlignment = Alignment.Center,
-        ) {
-            Column(
-                modifier = GlanceModifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.Horizontal.End,
-            ) {
-                labels.forEach { label -> CountdownText(label, fontSize) }
-            }
-        }
-    }
-
-    @Suppress("FunctionNaming", "ktlint:standard:function-naming")
-    @Composable
-    private fun CountdownText(
-        text: String,
-        fontSizeSp: Float,
-    ) {
-        Text(
-            text = text,
-            modifier = GlanceModifier.fillMaxWidth(),
-            style =
-                TextStyle(
-                    color = ColorProvider(Color(WIDGET_FOREGROUND_ARGB)),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = fontSizeSp.sp,
-                    textAlign = TextAlign.End,
-                ),
-            maxLines = 1,
-        )
-    }
-}
-
-/** Receives widget lifecycle events and supplies [BasicWidget]. */
-class BasicWidgetReceiver : GlanceAppWidgetReceiver() {
-    override val glanceAppWidget: GlanceAppWidget = BasicWidget()
-
+/** Renders Memento Mori with the bundled Input Mono font in a native RemoteViews TextView. */
+class BasicWidgetReceiver : AppWidgetProvider() {
     override fun onEnabled(context: Context) {
         super.onEnabled(context)
         DailyUpdateReceiver.schedule(context)
@@ -114,6 +30,35 @@ class BasicWidgetReceiver : GlanceAppWidgetReceiver() {
     ) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
         DailyUpdateReceiver.schedule(context)
+        BasicWidgetRenderer.update(context, appWidgetIds)
+    }
+
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: Bundle,
+    ) {
+        super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
+        BasicWidgetRenderer.update(context, intArrayOf(appWidgetId))
+    }
+
+    override fun onReceive(
+        context: Context,
+        intent: Intent,
+    ) {
+        if (intent.action == REFRESH_ACTION) {
+            val appWidgetId =
+                intent.getIntExtra(
+                    AppWidgetManager.EXTRA_APPWIDGET_ID,
+                    AppWidgetManager.INVALID_APPWIDGET_ID,
+                )
+            if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                BasicWidgetRenderer.update(context, intArrayOf(appWidgetId))
+            }
+            return
+        }
+        super.onReceive(context, intent)
     }
 
     override fun onDisabled(context: Context) {
@@ -122,13 +67,71 @@ class BasicWidgetReceiver : GlanceAppWidgetReceiver() {
     }
 }
 
-/** Recalculates and redraws the touched widget instance. */
-class RefreshWidgetAction : ActionCallback {
-    override suspend fun onAction(
+/** Produces native RemoteViews so the app's bundled monospace font is used by every launcher. */
+internal object BasicWidgetRenderer {
+    fun update(
         context: Context,
-        glanceId: GlanceId,
-        parameters: ActionParameters,
+        appWidgetIds: IntArray,
     ) {
-        BasicWidget().update(context, glanceId)
+        val appWidgetManager = AppWidgetManager.getInstance(context)
+        appWidgetIds.forEach { appWidgetId ->
+            appWidgetManager.updateAppWidget(appWidgetId, remoteViews(context, appWidgetId))
+        }
     }
+
+    private fun remoteViews(
+        context: Context,
+        appWidgetId: Int,
+    ): RemoteViews {
+        val options = AppWidgetManager.getInstance(context).getAppWidgetOptions(appWidgetId)
+        val labels = CountdownCalculator.from(LocalDate.now()).labels()
+        val fontSize =
+            WidgetFontSizeCalculator.calculateSp(
+                widthDp = currentWidthDp(options),
+                heightDp = currentHeightDp(options),
+                fontScale = context.resources.configuration.fontScale,
+                labels = labels,
+            )
+
+        return RemoteViews(context.packageName, R.layout.widget_content).apply {
+            setTextViewText(R.id.widget_countdown, labels.joinToString(separator = "\n"))
+            setTextViewTextSize(
+                R.id.widget_countdown,
+                TypedValue.COMPLEX_UNIT_SP,
+                fontSize,
+            )
+            setOnClickPendingIntent(
+                R.id.widget_countdown,
+                refreshPendingIntent(context, appWidgetId),
+            )
+        }
+    }
+
+    private fun currentWidthDp(options: Bundle): Float =
+        options
+            .getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
+            .takeIf { it > 0 }
+            ?.toFloat()
+            ?: DEFAULT_WIDGET_WIDTH_DP
+
+    private fun currentHeightDp(options: Bundle): Float =
+        options
+            .getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT)
+            .takeIf { it > 0 }
+            ?.toFloat()
+            ?: DEFAULT_WIDGET_HEIGHT_DP
+
+    private fun refreshPendingIntent(
+        context: Context,
+        appWidgetId: Int,
+    ): PendingIntent =
+        PendingIntent.getBroadcast(
+            context,
+            appWidgetId,
+            Intent(context, BasicWidgetReceiver::class.java)
+                .setAction(REFRESH_ACTION)
+                .setData(Uri.parse("mementomori://widget/$appWidgetId"))
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
 }
