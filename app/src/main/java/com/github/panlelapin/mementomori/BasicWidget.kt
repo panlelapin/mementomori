@@ -107,8 +107,8 @@ class BasicWidgetReceiver : GlanceAppWidgetReceiver() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray,
     ) {
-        DailyUpdateReceiver.schedule(context)
         super.onUpdate(context, appWidgetManager, appWidgetIds)
+        DailyUpdateReceiver.schedule(context)
     }
 
     override fun onDisabled(context: Context) {
