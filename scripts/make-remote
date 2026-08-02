@@ -10,6 +10,7 @@ EXPECTED_PACKAGE=${EXPECTED_PACKAGE:-com.github.panlelapin.mementomori}
 COMMIT_MESSAGE=${COMMIT_MESSAGE:-Build Android widget remotely}
 POLL_SECONDS=${POLL_SECONDS:-10}
 RUN_DISCOVERY_ATTEMPTS=${RUN_DISCOVERY_ATTEMPTS:-60}
+ADB_SERIAL=${ADB_SERIAL:-}
 BOOTSTRAP=0
 readonly BOOTSTRAP_FIRST_COMMIT='Batman, because he has no parent'
 readonly BOOTSTRAP_SUCCESS_COMMIT='Basic widget pushed and compiled successfully'
@@ -131,6 +132,83 @@ resolve_toolchains() {
   [[ -n "$JDK_ROOT" ]] || die "JDK 17 not found; set JAVA_HOME or install it in a standard user/system location"
   export JAVA_HOME=$JDK_ROOT
   export PATH="$JAVA_HOME/bin:$PATH"
+}
+
+install_on_adb_device() {
+  local device
+  local installed_path
+  local expected_version_code
+  local expected_version_name
+  local installed_version_code
+  local installed_version_name
+  local expected_sha256
+  local installed_sha256
+  local installed_apk
+  local -a devices=()
+
+  if ! command -v adb >/dev/null 2>&1; then
+    printf 'ADB not found; skipping device installation.\n'
+    return 0
+  fi
+
+  if [[ -n "$ADB_SERIAL" ]]; then
+    if [[ "$(adb -s "$ADB_SERIAL" get-state 2>/dev/null || true)" == device ]]; then
+      devices=("$ADB_SERIAL")
+    fi
+  else
+    mapfile -t devices < <(
+      adb devices 2>/dev/null |
+        sed -n 's/^\([^[:space:]]\+\)[[:space:]]\+device$/\1/p'
+    )
+  fi
+
+  if [[ "${#devices[@]}" -eq 0 ]]; then
+    printf 'No authorized ADB device connected; skipping device installation.\n'
+    return 0
+  fi
+  [[ "${#devices[@]}" -eq 1 ]] || \
+    die "multiple ADB devices connected; set ADB_SERIAL to select one"
+  device=${devices[0]}
+
+  installed_path=$(adb -s "$device" shell pm path "$EXPECTED_PACKAGE" 2>/dev/null |
+    sed -n 's/^package://p' | sed -n '1p')
+  if [[ -n "$installed_path" ]]; then
+    printf 'Uninstalling previous %s from ADB device %s.\n' "$EXPECTED_PACKAGE" "$device"
+    adb -s "$device" uninstall "$EXPECTED_PACKAGE"
+  else
+    printf 'No previous %s installation found on ADB device %s.\n' "$EXPECTED_PACKAGE" "$device"
+  fi
+
+  printf 'Installing %s on ADB device %s.\n' "$APK" "$device"
+  adb -s "$device" install "$APK"
+
+  expected_version_code=$(
+    "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest version-code "$APK"
+  )
+  expected_version_name=$(
+    "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest version-name "$APK"
+  )
+  installed_path=$(adb -s "$device" shell pm path "$EXPECTED_PACKAGE" 2>/dev/null |
+    sed -n 's/^package://p' | sed -n '1p')
+  [[ -n "$installed_path" ]] || die "installed package path not found on ADB device $device"
+  installed_version_code=$(adb -s "$device" shell dumpsys package "$EXPECTED_PACKAGE" |
+    sed -n 's/.*versionCode=\([^ ]*\).*/\1/p' | sed -n '1p' | sed 's/\r$//')
+  installed_version_name=$(adb -s "$device" shell dumpsys package "$EXPECTED_PACKAGE" |
+    sed -n 's/.*versionName=\([^ ]*\).*/\1/p' | sed -n '1p' | sed 's/\r$//')
+  [[ "$installed_version_code" == "$expected_version_code" ]] ||
+    die "installed versionCode mismatch: $installed_version_code (expected $expected_version_code)"
+  [[ "$installed_version_name" == "$expected_version_name" ]] ||
+    die "installed versionName mismatch: $installed_version_name (expected $expected_version_name)"
+  DEVICE_VERIFY_DIR=$(mktemp -d "${TMPDIR:-/tmp}/make-remote-device.XXXXXX")
+  installed_apk=$DEVICE_VERIFY_DIR/installed.apk
+  adb -s "$device" pull "$installed_path" "$installed_apk" >/dev/null
+  expected_sha256=$(sha256sum "$APK" | sed 's/[[:space:]].*$//')
+  installed_sha256=$(sha256sum "$installed_apk" | sed 's/[[:space:]].*$//')
+  [[ "$installed_sha256" == "$expected_sha256" ]] ||
+    die "installed APK SHA-256 mismatch: $installed_sha256 (expected $expected_sha256)"
+  printf 'ADB installation verified: device=%s package=%s versionCode=%s versionName=%s.\n' \
+    "$device" "$EXPECTED_PACKAGE" "$installed_version_code" "$installed_version_name"
+  printf 'ADB installed APK SHA-256 verified: %s.\n' "$installed_sha256"
 }
 
 require_local_check() {
@@ -280,6 +358,7 @@ done
 DOWNLOAD_DIR=''
 STAGING_DIR=''
 BACKUP_DIR=''
+DEVICE_VERIFY_DIR=''
 BUILD_PATH=$ROOT/$BUILD_DIR
 BUILD_PARENT=${BUILD_PATH%/*}
 [[ "$BUILD_PARENT" != "$BUILD_PATH" ]] || BUILD_PARENT=$ROOT
@@ -295,6 +374,7 @@ cleanup() {
   [[ -z "$DOWNLOAD_DIR" || ! -d "$DOWNLOAD_DIR" ]] || rm -rf -- "$DOWNLOAD_DIR"
   [[ -z "$STAGING_DIR" || ! -d "$STAGING_DIR" ]] || rm -rf -- "$STAGING_DIR"
   [[ -z "$BACKUP_DIR" || ! -d "$BACKUP_DIR" ]] || rm -rf -- "$BACKUP_DIR"
+  [[ -z "$DEVICE_VERIFY_DIR" || ! -d "$DEVICE_VERIFY_DIR" ]] || rm -rf -- "$DEVICE_VERIFY_DIR"
   exit "$status"
 }
 trap cleanup EXIT INT TERM
@@ -339,5 +419,7 @@ if [[ "$BOOTSTRAP" -eq 1 ]]; then
   git commit --allow-empty -m "$BOOTSTRAP_SUCCESS_COMMIT"
   git push origin "HEAD:refs/heads/$BRANCH"
 fi
+
+install_on_adb_device
 
 printf 'GitHub Actions run: https://github.com/%s/actions/runs/%s\n' "$REPOSITORY" "$RUN_ID"
