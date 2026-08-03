@@ -150,8 +150,8 @@ send those pixels through a native `RemoteViews` `ImageView`. Do not rely on a l
 typeface it can replace. Render the bitmap at the current AppWidget option dimensions, align its
 three lines to the right and center the block vertically. The static XML preview must use the same
 bundled font, thin Unicode spacing before suffixes, right/end alignment, and representative
-non-placeholder values. Its current target and minimum widget size is 1x2; keep
-`targetCellWidth="1"`, `targetCellHeight="2"`, and matching 55dp by 110dp minimum dimensions
+non-placeholder values. Its current target and minimum widget size is 2x2; keep
+`targetCellWidth="2"`, `targetCellHeight="2"`, and matching 110dp by 110dp minimum dimensions
 in the provider metadata. The pure font-size calculation must use the current AppWidget option
 dimensions and grow for larger widget sizes. Use the real `widget_content` layout as
 `initialLayout`; never treat the static widget preview as the calculated widget output.

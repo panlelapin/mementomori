@@ -17,9 +17,11 @@ import java.time.LocalDate
 import kotlin.math.roundToInt
 
 private const val REFRESH_ACTION = "com.github.panlelapin.mementomori.action.REFRESH_WIDGET"
-private const val DEFAULT_WIDGET_WIDTH_DP = 55f
+private const val THIN_SPACE = "\u2009"
+private const val DEFAULT_WIDGET_WIDTH_DP = 110f
 private const val DEFAULT_WIDGET_HEIGHT_DP = 110f
-private const val WIDGET_LINE_SPACING_FACTOR = 1.30f
+private const val WIDGET_LINE_SPACING_FACTOR = 1.15f
+private const val WIDGET_SUFFIX_GAP_EM = 0.10f
 
 /** Renders Memento Mori as pixels drawn with the bundled monospace font. */
 class BasicWidgetReceiver : AppWidgetProvider() {
@@ -186,8 +188,35 @@ internal object WidgetBitmapRenderer {
         val canvas = Canvas(bitmap)
 
         labels.forEachIndexed { index, label ->
-            canvas.drawText(label, rightEdge, firstBaseline + index * lineAdvance, paint)
+            drawLabel(
+                canvas = canvas,
+                paint = paint,
+                label = label,
+                rightEdge = rightEdge,
+                baseline = firstBaseline + index * lineAdvance,
+            )
         }
         return bitmap
+    }
+
+    private fun drawLabel(
+        canvas: Canvas,
+        paint: Paint,
+        label: String,
+        rightEdge: Float,
+        baseline: Float,
+    ) {
+        val separatorIndex = label.indexOf(THIN_SPACE)
+        if (separatorIndex < 0) {
+            canvas.drawText(label, rightEdge, baseline, paint)
+            return
+        }
+
+        val number = label.substring(startIndex = 0, endIndex = separatorIndex)
+        val suffix = label.substring(startIndex = separatorIndex + THIN_SPACE.length)
+        canvas.drawText(suffix, rightEdge, baseline, paint)
+        val suffixWidth = paint.measureText(suffix)
+        val customGap = paint.textSize * WIDGET_SUFFIX_GAP_EM
+        canvas.drawText(number, rightEdge - suffixWidth - customGap, baseline, paint)
     }
 }

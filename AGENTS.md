@@ -46,14 +46,15 @@ durée décomposée. Aucun état de compteur n'est persisté.
 
 ## Rendu et dimensions
 
-- Taille cible et taille minimale : **1 colonne × 2 lignes** (`1x2`).
+- Taille cible et taille minimale : **2 colonnes × 2 lignes** (`2x2`).
 - Fond entièrement transparent.
 - Texte blanc dessiné avec la police embarquée `Noto Mono Regular`, sans graisse forcée. Le
   rendu réel est produit dans le processus de l'application par `Canvas` et `Paint`, puis transmis
   sous forme de bitmap à un `ImageView` `RemoteViews`. Le lanceur ne reçoit donc plus du texte et
   ne peut plus remplacer la police par une police proportionnelle.
-  Les trois lignes sont alignées à droite dans toute la largeur disponible, légèrement espacées
-  verticalement et centrées ensemble dans le widget.
+  Les trois lignes sont alignées à droite dans toute la largeur disponible, espacées de 15 %
+  entre lignes et centrées ensemble dans le widget. L'espace visuel avant chaque suffixe reste
+  inférieur à une largeur de glyphe, tout en conservant Noto Mono pour tous les caractères.
 - L'ensemble de la surface est cliquable et déclenche un recalcul suivi d'un nouveau
   rendu.
 - La taille de police n'est jamais une constante visuelle. Elle est calculée depuis les
@@ -105,7 +106,9 @@ il devient invisible ou entièrement blanc sur certains lanceurs.
 - `minSdk = 34` (Android 14), `targetSdk = 36`, `compileSdk = 36`.
 - Java/Kotlin JVM 17.
 - Le rendu ne dépend pas de Glance ni de WorkManager. Un bitmap transparent est dessiné avec la
-  ressource `@font/noto_mono_regular`, puis transmis dans un `RemoteViews` natif.
+  ressource `@font/noto_mono_regular`, puis transmis dans un `RemoteViews` natif. Le nombre et
+  son suffixe sont dessinés séparément afin de réduire l'espace visuel sans repasser en police
+  proportionnelle.
 - Un filtre `arm64-v8a` est configuré pour d'éventuelles dépendances natives. Tant que
   l'application reste entièrement Kotlin et ne contient aucun fichier `.so`, l'APK demeure
   en pratique indépendant de l'ABI ; ne pas prétendre le contraire.
@@ -159,7 +162,7 @@ Ce dépôt est suivi avec la skill Codex `make-android-widget`.
    construction Gradle locale exécutés directement.
 6. Une CI réussie prouve la compilation de l'APK, pas son comportement réel sur appareil.
    Pour la validation finale, installer l'APK sur Android 14 ou plus récent et vérifier :
-   l'icône du sélecteur, la taille initiale 1x2, l'absence de troncature, le toucher, le
+    l'icône du sélecteur, la taille initiale 2x2, l'absence de troncature, le toucher, le
    redémarrage et la présence de la prochaine alarme de 01:00. Si un appareil ADB autorisé
    est connecté, `make-remote` effectue automatiquement l'installation et la vérification
    cryptographique, mais les essais fonctionnels du widget restent à faire et à rapporter
