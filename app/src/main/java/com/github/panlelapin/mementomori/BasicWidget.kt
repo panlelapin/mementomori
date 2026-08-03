@@ -15,7 +15,7 @@ private const val REFRESH_ACTION = "com.github.panlelapin.mementomori.action.REF
 private const val DEFAULT_WIDGET_WIDTH_DP = 55f
 private const val DEFAULT_WIDGET_HEIGHT_DP = 110f
 
-/** Renders Memento Mori with the bundled Input Mono font in a native RemoteViews TextView. */
+/** Renders Memento Mori with Android's explicit monospace family in a native RemoteViews TextView. */
 class BasicWidgetReceiver : AppWidgetProvider() {
     override fun onEnabled(context: Context) {
         super.onEnabled(context)
@@ -67,7 +67,7 @@ class BasicWidgetReceiver : AppWidgetProvider() {
     }
 }
 
-/** Produces native RemoteViews so the app's bundled monospace font is used by every launcher. */
+/** Produces native RemoteViews that request Android's monospace family from the launcher. */
 internal object BasicWidgetRenderer {
     fun update(
         context: Context,

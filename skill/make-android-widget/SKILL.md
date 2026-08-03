@@ -143,12 +143,12 @@ For each starter:
 
 Use the modern widget sizing and feature APIs available on Android 14 directly. Add responsive/exact Glance layouts, dynamic color, generated Android 15 previews, reconfiguration, interactions, or state only when the product needs them. Do not add compatibility branches below API 34.
 
-For the Memento Mori implementation, use a native `RemoteViews` `TextView` with the bundled
-`@font/input_mono_regular` resource rather than Glance's generic font-family span. This makes
-the exact Input Mono glyphs part of the APK and prevents the launcher from selecting a
-proportional fallback. The real layout and static XML preview must use that same font resource,
-right/end alignment, thin Unicode spacing before suffixes, and representative non-placeholder
-values in the preview. Its current target and minimum widget size is 1x2; keep
+For the Memento Mori implementation, use a native `RemoteViews` `TextView` with the explicit
+Android system family `monospace`, rather than Glance's generic font-family span or a private
+font resource. `RemoteViews` is inflated by the launcher, which can ignore a private APK font;
+the named platform family reliably provides equal glyph advances. The real layout and static XML
+preview must use that same family, right/end alignment, thin Unicode spacing before suffixes, and
+representative non-placeholder values in the preview. Its current target and minimum widget size is 1x2; keep
 `targetCellWidth="1"`, `targetCellHeight="2"`, and matching 55dp by 110dp minimum dimensions
 in the provider metadata. The pure font-size calculation must use the current AppWidget option
 dimensions and grow for larger widget sizes. Use the real `widget_content` layout as

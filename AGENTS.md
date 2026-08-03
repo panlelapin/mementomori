@@ -48,9 +48,10 @@ durée décomposée. Aucun état de compteur n'est persisté.
 
 - Taille cible et taille minimale : **1 colonne × 2 lignes** (`1x2`).
 - Fond entièrement transparent.
-- Texte blanc dans la police embarquée `Input Mono Regular`, sans graisse forcée. Le rendu réel
-  utilise un `TextView` `RemoteViews` natif avec `@font/input_mono_regular`, pas la famille
-  générique de Glance : aucun lanceur ne choisit une police de remplacement proportionnelle.
+- Texte blanc dans la famille système Android explicite `monospace`, sans graisse forcée. Le
+  rendu réel utilise un `TextView` `RemoteViews` natif : cette famille système est résolue par
+  le lanceur et garantit des chasses égales, contrairement à une police privée de l'APK qui peut
+  être ignorée lors de l'inflation distante.
   Les trois lignes sont alignées à droite dans toute la largeur disponible et centrées
   verticalement dans le widget.
 - L'ensemble de la surface est cliquable et déclenche un recalcul suivi d'un nouveau
@@ -101,8 +102,8 @@ il devient invisible ou entièrement blanc sur certains lanceurs.
 - `applicationId` et namespace : `com.github.panlelapin.mementomori`.
 - `minSdk = 34` (Android 14), `targetSdk = 36`, `compileSdk = 36`.
 - Java/Kotlin JVM 17.
-- Le rendu ne dépend pas de Glance ni de WorkManager. La police et les valeurs sont transmises
-  dans un `RemoteViews` natif, afin que le `TextView` charge la police embarquée depuis l'APK.
+- Le rendu ne dépend pas de Glance ni de WorkManager. Les valeurs sont transmises dans un
+  `RemoteViews` natif ; le `TextView` demande explicitement la famille système `monospace`.
 - Un filtre `arm64-v8a` est configuré pour d'éventuelles dépendances natives. Tant que
   l'application reste entièrement Kotlin et ne contient aucun fichier `.so`, l'APK demeure
   en pratique indépendant de l'ABI ; ne pas prétendre le contraire.

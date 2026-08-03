@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/transparent"
-    android:fontFamily="@font/input_mono_regular"
+    android:fontFamily="monospace"
     android:gravity="end|center_vertical"
     android:includeFontPadding="false"
     android:lineSpacingMultiplier="1.0"
