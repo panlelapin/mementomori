@@ -9,5 +9,9 @@ Then in the widget will be displayed, in that color, the number of
 
 between the current day and the target date.
 
+
+Vibecoded locally with Devstral Small 2 24B Q4 on a Macbook M4 ???
+
 No compilation is done locally, only through GH Actions.
+
 AGENTS.md and SKILL.md are provided.
