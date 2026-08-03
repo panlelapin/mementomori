@@ -12,14 +12,23 @@ POLL_SECONDS=${POLL_SECONDS:-10}
 RUN_DISCOVERY_ATTEMPTS=${RUN_DISCOVERY_ATTEMPTS:-60}
 ADB_SERIAL=${ADB_SERIAL:-}
 BOOTSTRAP=0
+RESUME_RUN_ID=''
 readonly BOOTSTRAP_FIRST_COMMIT='Batman, because he has no parent'
 readonly BOOTSTRAP_SUCCESS_COMMIT='Basic widget pushed and compiled successfully'
 
 case "${1:-}" in
   '') ;;
   --bootstrap) BOOTSTRAP=1 ;;
-  *) printf 'Usage: %s [--bootstrap]\n' "$0" >&2; exit 2 ;;
+  --resume)
+    [[ "$#" -eq 2 && "$2" =~ ^[0-9]+$ ]] || {
+      printf 'Usage: %s [--bootstrap | --resume <successful-run-id>]\n' "$0" >&2
+      exit 2
+    }
+    RESUME_RUN_ID=$2
+    ;;
+  *) printf 'Usage: %s [--bootstrap | --resume <successful-run-id>]\n' "$0" >&2; exit 2 ;;
 esac
+[[ "$BOOTSTRAP" -eq 0 || -z "$RESUME_RUN_ID" ]] || die '--bootstrap and --resume are exclusive'
 
 readonly SCRIPT_NAME=${0##*/}
 
@@ -297,8 +306,21 @@ git check-ignore -q --no-index "$BUILD_DIR/" || \
 
 require_local_check
 
-stage_source_changes
-if [[ "$BOOTSTRAP" -eq 1 ]]; then
+HEAD_SHA=$(git rev-parse HEAD)
+if [[ -n "$RESUME_RUN_ID" ]]; then
+  RUN_ID=$RESUME_RUN_ID
+  IFS=$'\t' read -r STATUS CONCLUSION RUN_HEAD_SHA < <(
+    gh run view "$RUN_ID" --repo "$REPOSITORY" --json status,conclusion,headSha \
+      --jq '[.status, (.conclusion // ""), .headSha] | @tsv'
+  )
+  [[ "$STATUS" == completed && "$CONCLUSION" == success ]] || \
+    die "run $RUN_ID is not a successful completed workflow"
+  [[ "$RUN_HEAD_SHA" == "$HEAD_SHA" ]] || \
+    die "run $RUN_ID targets $RUN_HEAD_SHA, not current commit $HEAD_SHA"
+  printf 'Resuming successful run %s for current commit %s.\n' "$RUN_ID" "$HEAD_SHA"
+else
+  stage_source_changes
+  if [[ "$BOOTSTRAP" -eq 1 ]]; then
   BOOTSTRAP_STARTED=0
   BOOTSTRAP_FINISHED=0
   while IFS= read -r subject; do
@@ -314,60 +336,61 @@ if [[ "$BOOTSTRAP" -eq 1 ]]; then
   else
     git commit -m "$COMMIT_MESSAGE"
   fi
-elif git diff --cached --quiet; then
-  printf 'No source changes to commit; building existing commit %s.\n' "$(git rev-parse --short HEAD)"
-else
-  git commit -m "$COMMIT_MESSAGE"
-fi
+  elif git diff --cached --quiet; then
+    printf 'No source changes to commit; building existing commit %s.\n' "$(git rev-parse --short HEAD)"
+  else
+    git commit -m "$COMMIT_MESSAGE"
+  fi
 
-git push origin "HEAD:refs/heads/$BRANCH"
-HEAD_SHA=$(git rev-parse HEAD)
-resolve_toolchains
-
-mapfile -t PREVIOUS_RUN_IDS < <(
+  git push origin "HEAD:refs/heads/$BRANCH"
+  HEAD_SHA=$(git rev-parse HEAD)
+  mapfile -t PREVIOUS_RUN_IDS < <(
   gh run list --repo "$REPOSITORY" --workflow "$WORKFLOW_FILE" --branch "$BRANCH" \
     --event workflow_dispatch --limit 100 --json databaseId --jq '.[].databaseId'
 )
-declare -A PREVIOUS_RUN=()
-for run_id in "${PREVIOUS_RUN_IDS[@]}"; do
-  PREVIOUS_RUN[$run_id]=1
-done
+  declare -A PREVIOUS_RUN=()
+  for run_id in "${PREVIOUS_RUN_IDS[@]}"; do
+    PREVIOUS_RUN[$run_id]=1
+  done
 
-gh workflow run "$WORKFLOW_FILE" --repo "$REPOSITORY" --ref "$BRANCH"
-printf 'Waiting for a new workflow run for %s.\n' "$HEAD_SHA"
+  gh workflow run "$WORKFLOW_FILE" --repo "$REPOSITORY" --ref "$BRANCH"
+  printf 'Waiting for a new workflow run for %s.\n' "$HEAD_SHA"
 
-RUN_ID=''
-for ((attempt = 1; attempt <= RUN_DISCOVERY_ATTEMPTS; attempt++)); do
+  RUN_ID=''
+  for ((attempt = 1; attempt <= RUN_DISCOVERY_ATTEMPTS; attempt++)); do
   mapfile -t CANDIDATE_RUN_IDS < <(
     gh run list --repo "$REPOSITORY" --workflow "$WORKFLOW_FILE" --branch "$BRANCH" \
       --event workflow_dispatch --commit "$HEAD_SHA" --limit 20 \
       --json databaseId --jq '.[].databaseId'
   )
-  for candidate in "${CANDIDATE_RUN_IDS[@]}"; do
-    if [[ -z "${PREVIOUS_RUN[$candidate]+present}" ]]; then
-      RUN_ID=$candidate
-      break 2
-    fi
+    for candidate in "${CANDIDATE_RUN_IDS[@]}"; do
+      if [[ -z "${PREVIOUS_RUN[$candidate]+present}" ]]; then
+        RUN_ID=$candidate
+        break 2
+      fi
+    done
+    sleep "$POLL_SECONDS"
   done
-  sleep "$POLL_SECONDS"
-done
-[[ -n "$RUN_ID" ]] || die "could not find the newly dispatched workflow run for $HEAD_SHA"
+  [[ -n "$RUN_ID" ]] || die "could not find the newly dispatched workflow run for $HEAD_SHA"
 
-while :; do
+  while :; do
   IFS=$'\t' read -r STATUS CONCLUSION < <(
     gh run view "$RUN_ID" --repo "$REPOSITORY" --json status,conclusion \
       --jq '[.status, (.conclusion // "")] | @tsv'
   )
-  printf 'Run %s: %s%s\n' "$RUN_ID" "$STATUS" "${CONCLUSION:+ ($CONCLUSION)}"
-  if [[ "$STATUS" == completed ]]; then
-    if [[ "$CONCLUSION" != success ]]; then
-      gh run view "$RUN_ID" --repo "$REPOSITORY" --log-failed >&2 || true
-      die "workflow failed: ${CONCLUSION:-unknown conclusion}"
+    printf 'Run %s: %s%s\n' "$RUN_ID" "$STATUS" "${CONCLUSION:+ ($CONCLUSION)}"
+    if [[ "$STATUS" == completed ]]; then
+      if [[ "$CONCLUSION" != success ]]; then
+        gh run view "$RUN_ID" --repo "$REPOSITORY" --log-failed >&2 || true
+        die "workflow failed: ${CONCLUSION:-unknown conclusion}"
+      fi
+      break
     fi
-    break
-  fi
-  sleep "$POLL_SECONDS"
-done
+    sleep "$POLL_SECONDS"
+  done
+fi
+
+resolve_toolchains
 
 DOWNLOAD_DIR=''
 STAGING_DIR=''

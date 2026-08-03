@@ -146,7 +146,9 @@ Ce dépôt est suivi avec la skill Codex `make-android-widget`.
    exactement aux changements à livrer.
 4. Pour compiler et récupérer l'APK, utiliser uniquement `scripts/make-remote`. Ce script
    gère le commit, le push, le déclenchement manuel de GitHub Actions, le téléchargement et
-   la vérification de l'artefact. En fin de script, s'il trouve exactement un appareil ADB
+   la vérification de l'artefact. Si une exécution a été interrompue après le succès de sa CI,
+   `scripts/make-remote --resume <run-id>` reprend uniquement cet artefact après avoir vérifié
+   son succès et son SHA de commit. En fin de script, s'il trouve exactement un appareil ADB
    autorisé, il désinstalle l'ancienne application, installe le nouvel APK et vérifie le
    package, les versions et le SHA-256 exact de l'APK installé. Utiliser `ADB_SERIAL` pour
    sélectionner explicitement un appareil quand plusieurs sont connectés.
