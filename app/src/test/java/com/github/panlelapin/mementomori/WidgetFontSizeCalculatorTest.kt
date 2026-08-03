@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WidgetFontSizeCalculatorTest {
-    private val labels = listOf("10a", "120m", "521s")
+    private val labels = listOf("10\u2009a", "120\u2009m", "521\u2009s")
 
     @Test
     fun fontSizeUsesTheMostRestrictiveDimension() {
@@ -33,7 +33,7 @@ class WidgetFontSizeCalculatorTest {
             )
 
         assertEquals(31.05f, square, 0.001f)
-        assertEquals(25.65f, narrow, 0.001f)
+        assertEquals(20.25f, narrow, 0.001f)
         assertEquals(17.55f, short, 0.001f)
     }
 

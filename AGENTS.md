@@ -48,22 +48,22 @@ durée décomposée. Aucun état de compteur n'est persisté.
 
 - Taille cible et taille minimale : **1 colonne × 2 lignes** (`1x2`).
 - Fond entièrement transparent.
-- Texte blanc dans la famille système Android explicite `monospace`, sans graisse forcée. Le
-  rendu réel utilise un `TextView` `RemoteViews` natif : cette famille système est résolue par
-  le lanceur et garantit des chasses égales, contrairement à une police privée de l'APK qui peut
-  être ignorée lors de l'inflation distante.
+- Texte blanc dessiné avec la police embarquée `Input Mono Regular`, sans graisse forcée. Le
+  rendu réel est produit dans le processus de l'application par `Canvas` et `Paint`, puis transmis
+  sous forme de bitmap à un `ImageView` `RemoteViews`. Le lanceur ne reçoit donc plus du texte et
+  ne peut plus remplacer la police par une police proportionnelle.
   Les trois lignes sont alignées à droite dans toute la largeur disponible et centrées
   verticalement dans le widget.
 - L'ensemble de la surface est cliquable et déclenche un recalcul suivi d'un nouveau
   rendu.
-- La taille de police n'est jamais une constante visuelle. Elle est calculée depuis la
-  taille réelle fournie par `LocalSize`, le facteur de police Android, les marges et la
+- La taille de police n'est jamais une constante visuelle. Elle est calculée depuis les
+  dimensions réelles fournies par les options AppWidget, le facteur de police Android, les marges et la
   longueur de la ligne la plus longue, puis agrandie par un facteur visuel de 1,35.
 - Le calcul doit employer des coefficients conservateurs pour la largeur d'un glyphe
   monospace et la hauteur d'une ligne. Les trois lignes doivent toujours rester visibles,
   complètes, sur une seule ligne chacune, sans coupure ni retour à la ligne.
-- Le widget peut être agrandi jusqu'à `4x4` environ ; la police doit alors s'agrandir avec
-  lui. `SizeMode.Exact` est requis pour recomposer selon ses dimensions réelles.
+- Le widget peut être agrandi jusqu'à `4x4` environ ; le bitmap et la police doivent alors être
+  recalculés selon ses dimensions réelles.
 - L'aperçu statique du sélecteur ne réalise aucun calcul, mais doit rester visuellement
   fidèle au rendu réel : police monospace, alignement à droite, espace fine et valeurs
   représentatives `10 a`, `120 m`, `521 s`. Il ne doit pas utiliser `...` ni de faux zéros.
@@ -102,8 +102,8 @@ il devient invisible ou entièrement blanc sur certains lanceurs.
 - `applicationId` et namespace : `com.github.panlelapin.mementomori`.
 - `minSdk = 34` (Android 14), `targetSdk = 36`, `compileSdk = 36`.
 - Java/Kotlin JVM 17.
-- Le rendu ne dépend pas de Glance ni de WorkManager. Les valeurs sont transmises dans un
-  `RemoteViews` natif ; le `TextView` demande explicitement la famille système `monospace`.
+- Le rendu ne dépend pas de Glance ni de WorkManager. Un bitmap transparent est dessiné avec la
+  ressource `@font/input_mono_regular`, puis transmis dans un `RemoteViews` natif.
 - Un filtre `arm64-v8a` est configuré pour d'éventuelles dépendances natives. Tant que
   l'application reste entièrement Kotlin et ne contient aucun fichier `.so`, l'APK demeure
   en pratique indépendant de l'ABI ; ne pas prétendre le contraire.

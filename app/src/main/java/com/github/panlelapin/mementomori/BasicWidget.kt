@@ -5,17 +5,22 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.net.Uri
 import android.os.Bundle
 import android.util.TypedValue
 import android.widget.RemoteViews
 import java.time.LocalDate
+import kotlin.math.roundToInt
 
 private const val REFRESH_ACTION = "com.github.panlelapin.mementomori.action.REFRESH_WIDGET"
 private const val DEFAULT_WIDGET_WIDTH_DP = 55f
 private const val DEFAULT_WIDGET_HEIGHT_DP = 110f
 
-/** Renders Memento Mori with Android's explicit monospace family in a native RemoteViews TextView. */
+/** Renders Memento Mori as pixels drawn with the bundled monospace font. */
 class BasicWidgetReceiver : AppWidgetProvider() {
     override fun onEnabled(context: Context) {
         super.onEnabled(context)
@@ -67,7 +72,7 @@ class BasicWidgetReceiver : AppWidgetProvider() {
     }
 }
 
-/** Produces native RemoteViews that request Android's monospace family from the launcher. */
+/** Produces native RemoteViews whose bitmap cannot have its typeface replaced by the launcher. */
 internal object BasicWidgetRenderer {
     fun update(
         context: Context,
@@ -85,20 +90,32 @@ internal object BasicWidgetRenderer {
     ): RemoteViews {
         val options = AppWidgetManager.getInstance(context).getAppWidgetOptions(appWidgetId)
         val labels = CountdownCalculator.from(LocalDate.now()).labels()
+        val widthDp = currentWidthDp(options)
+        val heightDp = currentHeightDp(options)
         val fontSize =
             WidgetFontSizeCalculator.calculateSp(
-                widthDp = currentWidthDp(options),
-                heightDp = currentHeightDp(options),
+                widthDp = widthDp,
+                heightDp = heightDp,
                 fontScale = context.resources.configuration.fontScale,
+                labels = labels,
+            )
+        val bitmap =
+            WidgetBitmapRenderer.render(
+                context = context,
+                widthDp = widthDp,
+                heightDp = heightDp,
+                fontSizeSp = fontSize,
                 labels = labels,
             )
 
         return RemoteViews(context.packageName, R.layout.widget_content).apply {
-            setTextViewText(R.id.widget_countdown, labels.joinToString(separator = "\n"))
-            setTextViewTextSize(
+            setImageViewBitmap(
                 R.id.widget_countdown,
-                TypedValue.COMPLEX_UNIT_SP,
-                fontSize,
+                bitmap,
+            )
+            setContentDescription(
+                R.id.widget_countdown,
+                labels.joinToString(separator = ", "),
             )
             setOnClickPendingIntent(
                 R.id.widget_countdown,
@@ -134,4 +151,42 @@ internal object BasicWidgetRenderer {
                 .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+}
+
+/** Draws the complete widget in the application process with the exact bundled typeface. */
+internal object WidgetBitmapRenderer {
+    fun render(
+        context: Context,
+        widthDp: Float,
+        heightDp: Float,
+        fontSizeSp: Float,
+        labels: List<String>,
+    ): Bitmap {
+        val metrics = context.resources.displayMetrics
+        val widthPx = (widthDp * metrics.density).roundToInt().coerceAtLeast(1)
+        val heightPx = (heightDp * metrics.density).roundToInt().coerceAtLeast(1)
+        val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+        bitmap.density = metrics.densityDpi
+
+        val paint =
+            Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
+                color = Color.WHITE
+                textAlign = Paint.Align.RIGHT
+                textSize =
+                    TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, fontSizeSp, metrics)
+                typeface = context.resources.getFont(R.font.input_mono_regular)
+            }
+        val fontMetrics = paint.fontMetrics
+        val lineAdvance = paint.fontSpacing
+        val blockHeight =
+            fontMetrics.descent - fontMetrics.ascent + lineAdvance * (labels.size - 1)
+        val firstBaseline = (heightPx - blockHeight) / 2f - fontMetrics.ascent
+        val rightEdge = widthPx - WIDGET_PADDING_DP * metrics.density
+        val canvas = Canvas(bitmap)
+
+        labels.forEachIndexed { index, label ->
+            canvas.drawText(label, rightEdge, firstBaseline + index * lineAdvance, paint)
+        }
+        return bitmap
+    }
 }

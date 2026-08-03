@@ -5,7 +5,8 @@
     android:background="@android:color/transparent"
     android:gravity="end|center_vertical"
     android:padding="8dp"
-    android:fontFamily="monospace"
+    android:fontFamily="@font/input_mono_regular"
+    android:typeface="monospace"
     android:textColor="@color/widget_foreground"
     android:text="@string/widget_preview_text"
     android:textSize="11sp" />
