@@ -77,14 +77,19 @@ de couleur sont conservés dans les préférences privées de l'application.
 - L'aperçu statique du sélecteur ne réalise aucun calcul, mais doit rester visuellement
   fidèle au rendu réel : police monospace, alignement à droite, espace fine et valeurs
   représentatives `10 a`, `120 m`, `521 s`. Il ne doit pas utiliser `...` ni de faux zéros.
+  Ses ressources suivent automatiquement le mode système : texte blanc sur fond noir en mode
+  clair et texte noir sur fond blanc en mode sombre.
 
 ## Activité de réglages
 
 - L'activité utilise Material Components 1.14.0, le thème `Theme.Material3.DayNight.NoActionBar`
-  et suit automatiquement le mode clair ou sombre du système.
-- Les éléments sont affichés verticalement : titre `Memento Mori widget`, section `Target date`
-  avec `MaterialDatePicker`, puis section `Font color` avec les sous-sections `Light mode` et
-  `Dark mode`.
+  et force explicitement `MODE_NIGHT_FOLLOW_SYSTEM` afin de suivre automatiquement le mode clair
+  ou sombre du système et de recréer son interface avec les ressources correspondantes.
+- Les éléments sont affichés verticalement : titre `Memento Mori widget`, paragraphe expliquant
+  les trois intervalles affichés, section `Target date` avec `MaterialDatePicker`, puis section
+  `Font color` avec les sous-sections `Light mode` et `Dark mode`. Le contenu ajoute les insets
+  des barres système à son padding afin que le titre ne soit pas collé en haut en mode bord à
+  bord.
 - Le sélecteur de date bloque toutes les dates antérieures ou égales à la date locale courante.
 - Chaque couleur est choisie dans un dialogue Material avec aperçu et curseurs rouge, vert et
   bleu. Les couleurs enregistrées sont opaques.
@@ -96,11 +101,12 @@ de couleur sont conservés dans les préférences privées de l'application.
 
 ## Icône
 
-L'icône officielle est le sablier blanc sur fond anthracite. Le manifeste doit utiliser
-la même ressource adaptative `@mipmap/app_icon` pour `android:icon` et
-`android:roundIcon`, afin que l'icône affichée dans le sélecteur de widgets soit la même
-que celle de l'application. Ne pas revenir à un simple tracé blanc sur fond transparent :
-il devient invisible ou entièrement blanc sur certains lanceurs.
+L'icône officielle est un sablier contrasté sur un fond opaque. Ses ressources suivent le mode
+système : fond noir et sablier blanc en mode clair, fond blanc et sablier noir en mode sombre. Le
+manifeste doit utiliser la même ressource adaptative `@mipmap/app_icon` pour `android:icon` et
+`android:roundIcon`, afin que l'icône affichée dans le sélecteur de widgets soit la même que celle
+de l'application. Ne pas revenir à un simple tracé sur fond transparent : il devient invisible
+sur certains lanceurs.
 
 ## Architecture et fichiers importants
 

@@ -3,8 +3,11 @@ package com.github.panlelapin.mementomori
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Bundle
+import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.ColorUtils
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.datepicker.CalendarConstraints
 import com.google.android.material.datepicker.DateValidatorPointForward
@@ -36,10 +39,30 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        applySystemBarInsets()
         targetDateButton.setOnClickListener { showTargetDatePicker() }
         lightColorButton.setOnClickListener { showColorPicker(darkMode = false) }
         darkColorButton.setOnClickListener { showColorPicker(darkMode = true) }
         renderSettings()
+    }
+
+    private fun applySystemBarInsets() {
+        val content = findViewById<View>(R.id.settings_content)
+        val initialLeft = content.paddingLeft
+        val initialTop = content.paddingTop
+        val initialRight = content.paddingRight
+        val initialBottom = content.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(content) { view, windowInsets ->
+            val systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(
+                initialLeft + systemBars.left,
+                initialTop + systemBars.top,
+                initialRight + systemBars.right,
+                initialBottom + systemBars.bottom,
+            )
+            windowInsets
+        }
+        ViewCompat.requestApplyInsets(content)
     }
 
     override fun onResume() {

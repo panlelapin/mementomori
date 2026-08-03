@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">Memento Mori</string>
     <string name="settings_title">Memento Mori widget</string>
+    <string name="settings_description">The memento mori widget will display the number of full years (y), full months (m) and full weeks (w) between the current day and the target day.</string>
     <string name="target_date">Target date</string>
     <string name="target_date_must_be_future">Target date must be in the future</string>
     <string name="font_color">Font color</string>

@@ -12,7 +12,7 @@
         android:translateX="24"
         android:translateY="24">
         <path
-            android:fillColor="@color/widget_foreground"
+            android:fillColor="@color/app_icon_foreground"
             android:pathData="M6,2h12v6l-4,4 4,4v6H6v-6l4,-4 -4,-4zM8,4v3.17l4,4 4,-4V4zM12,12.83l-4,4V20h8v-3.17z" />
     </group>
 </vector>

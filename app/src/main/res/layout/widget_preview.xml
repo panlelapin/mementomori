@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- This preview is launcher-inflated and does not cover an activity theme window background. -->
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@android:color/transparent"
+    android:background="@color/widget_preview_background"
     android:gravity="end|center_vertical"
     android:padding="8dp"
     android:fontFamily="@font/noto_mono_regular"
     android:typeface="monospace"
-    android:textColor="@color/widget_foreground"
+    android:textColor="@color/widget_preview_foreground"
     android:text="@string/widget_preview_text"
-    android:textSize="11sp" />
+    android:textSize="11sp"
+    tools:ignore="Overdraw" />
