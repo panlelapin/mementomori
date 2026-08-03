@@ -144,7 +144,7 @@ For each starter:
 Use the modern widget sizing and feature APIs available on Android 14 directly. Add responsive/exact Glance layouts, dynamic color, generated Android 15 previews, reconfiguration, interactions, or state only when the product needs them. Do not add compatibility branches below API 34.
 
 For the Memento Mori implementation, render the real widget text into a transparent `Bitmap` in
-the application process with `Canvas`, `Paint`, and the bundled `@font/input_mono_regular`, then
+the application process with `Canvas`, `Paint`, and the bundled `@font/noto_mono_regular`, then
 send those pixels through a native `RemoteViews` `ImageView`. Do not rely on a launcher-inflated
 `TextView`, a generic family name, or a font span: the launcher must receive no live text whose
 typeface it can replace. Render the bitmap at the current AppWidget option dimensions, align its

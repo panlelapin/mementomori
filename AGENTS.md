@@ -5,8 +5,8 @@ Ces instructions remplacent toutes les instructions `AGENTS.md` précédemment f
 ## Finalité du projet
 
 Ce dépôt contient **Memento Mori**, un widget Android d'écran d'accueil écrit en Kotlin.
-L'application est volontairement limitée au widget : elle ne contient aucune activité de
-lancement, aucun écran de configuration et aucun service permanent.
+L'application contient le widget et une activité de lancement minimale, sans écran de
+configuration ni service permanent. L'activité affiche uniquement le label `texte`.
 
 Le widget affiche le temps restant jusqu'au **17 mars 2036** sous la forme de trois
 intervalles indépendants et entiers :
@@ -48,12 +48,12 @@ durée décomposée. Aucun état de compteur n'est persisté.
 
 - Taille cible et taille minimale : **1 colonne × 2 lignes** (`1x2`).
 - Fond entièrement transparent.
-- Texte blanc dessiné avec la police embarquée `Input Mono Regular`, sans graisse forcée. Le
+- Texte blanc dessiné avec la police embarquée `Noto Mono Regular`, sans graisse forcée. Le
   rendu réel est produit dans le processus de l'application par `Canvas` et `Paint`, puis transmis
   sous forme de bitmap à un `ImageView` `RemoteViews`. Le lanceur ne reçoit donc plus du texte et
   ne peut plus remplacer la police par une police proportionnelle.
-  Les trois lignes sont alignées à droite dans toute la largeur disponible et centrées
-  verticalement dans le widget.
+  Les trois lignes sont alignées à droite dans toute la largeur disponible, légèrement espacées
+  verticalement et centrées ensemble dans le widget.
 - L'ensemble de la surface est cliquable et déclenche un recalcul suivi d'un nouveau
   rendu.
 - La taille de police n'est jamais une constante visuelle. Elle est calculée depuis les
@@ -78,6 +78,8 @@ il devient invisible ou entièrement blanc sur certains lanceurs.
 
 ## Architecture et fichiers importants
 
+- `app/src/main/java/com/github/panlelapin/mementomori/MainActivity.kt` contient l'activité de
+  lancement minimale affichée depuis le tiroir d'applications.
 - `app/src/main/java/com/github/panlelapin/mementomori/BasicWidget.kt` contient le rendu
   `RemoteViews`, le receiver AppWidget et l'action exécutée au toucher.
 - `app/src/main/java/com/github/panlelapin/mementomori/DailyUpdateReceiver.kt` contient le
@@ -98,12 +100,12 @@ il devient invisible ou entièrement blanc sur certains lanceurs.
 
 ## Socle Android
 
-- Kotlin et les APIs Android AppWidget/RemoteViews, sans activité.
+- Kotlin, les APIs Android AppWidget/RemoteViews et une activité Android minimale.
 - `applicationId` et namespace : `com.github.panlelapin.mementomori`.
 - `minSdk = 34` (Android 14), `targetSdk = 36`, `compileSdk = 36`.
 - Java/Kotlin JVM 17.
 - Le rendu ne dépend pas de Glance ni de WorkManager. Un bitmap transparent est dessiné avec la
-  ressource `@font/input_mono_regular`, puis transmis dans un `RemoteViews` natif.
+  ressource `@font/noto_mono_regular`, puis transmis dans un `RemoteViews` natif.
 - Un filtre `arm64-v8a` est configuré pour d'éventuelles dépendances natives. Tant que
   l'application reste entièrement Kotlin et ne contient aucun fichier `.so`, l'APK demeure
   en pratique indépendant de l'ABI ; ne pas prétendre le contraire.
@@ -119,7 +121,8 @@ il devient invisible ou entièrement blanc sur certains lanceurs.
 
 ## Règles de modification
 
-- Préserver l'architecture sans activité et sans interface supplémentaire.
+- Préserver l'architecture du widget et ne pas ajouter d'interface supplémentaire à l'activité
+  au-delà du label demandé.
 - Ne pas ajouter de réseau, de télémétrie, de stockage persistant ou de travail périodique
   en arrière-plan sans demande explicite.
 - Garder le calcul de date et le calcul typographique purs, déterministes et couverts par

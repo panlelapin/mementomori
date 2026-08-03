@@ -19,6 +19,7 @@ import kotlin.math.roundToInt
 private const val REFRESH_ACTION = "com.github.panlelapin.mementomori.action.REFRESH_WIDGET"
 private const val DEFAULT_WIDGET_WIDTH_DP = 55f
 private const val DEFAULT_WIDGET_HEIGHT_DP = 110f
+private const val WIDGET_LINE_SPACING_FACTOR = 1.30f
 
 /** Renders Memento Mori as pixels drawn with the bundled monospace font. */
 class BasicWidgetReceiver : AppWidgetProvider() {
@@ -174,10 +175,10 @@ internal object WidgetBitmapRenderer {
                 textAlign = Paint.Align.RIGHT
                 textSize =
                     TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, fontSizeSp, metrics)
-                typeface = context.resources.getFont(R.font.input_mono_regular)
+                typeface = context.resources.getFont(R.font.noto_mono_regular)
             }
         val fontMetrics = paint.fontMetrics
-        val lineAdvance = paint.fontSpacing
+        val lineAdvance = paint.fontSpacing * WIDGET_LINE_SPACING_FACTOR
         val blockHeight =
             fontMetrics.descent - fontMetrics.ascent + lineAdvance * (labels.size - 1)
         val firstBaseline = (heightPx - blockHeight) / 2f - fontMetrics.ascent
