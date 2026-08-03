@@ -155,6 +155,13 @@ non-placeholder values. Its current target and minimum widget size is 2x2; keep
 in the provider metadata. The pure font-size calculation must use the current AppWidget option
 dimensions and grow for larger widget sizes. Use the real `widget_content` layout as
 `initialLayout`; never treat the static widget preview as the calculated widget output.
+When Memento Mori exposes a configurable target date and separate light/dark font colors, persist
+those settings in private application preferences, validate the date as strictly future, and
+refresh all widget instances immediately after a setting change. Use the application
+`onConfigurationChanged` callback for night-mode changes received while the process is alive;
+do not declare `ACTION_CONFIGURATION_CHANGED` in the manifest because Android only delivers it
+to context-registered receivers. Keep the settings activity on the current stable Material 3
+DayNight theme and test the pure date/color selection rules on the JVM.
 
 ## Enforce one strict Kotlin quality gate
 

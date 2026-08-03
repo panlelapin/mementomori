@@ -33,4 +33,15 @@ class CountdownCalculatorTest {
             CountdownCalculator.from(LocalDate.of(2035, 3, 17)),
         )
     }
+
+    @Test
+    fun usesTheConfiguredTargetDate() {
+        assertEquals(
+            Countdown(years = 2, months = 24, weeks = 104),
+            CountdownCalculator.from(
+                today = LocalDate.of(2030, 1, 1),
+                targetDate = LocalDate.of(2032, 1, 1),
+            ),
+        )
+    }
 }

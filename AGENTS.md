@@ -5,10 +5,11 @@ Ces instructions remplacent toutes les instructions `AGENTS.md` précédemment f
 ## Finalité du projet
 
 Ce dépôt contient **Memento Mori**, un widget Android d'écran d'accueil écrit en Kotlin.
-L'application contient le widget et une activité de lancement minimale, sans écran de
-configuration ni service permanent. L'activité affiche uniquement le label `texte`.
+L'application contient le widget et une activité Material 3 de réglages, sans service permanent.
+L'activité permet de choisir la date cible et les couleurs du texte pour les modes clair et sombre.
 
-Le widget affiche le temps restant jusqu'au **17 mars 2036** sous la forme de trois
+Le widget affiche le temps restant jusqu'à une date cible, fixée par défaut au **17 mars 2036**,
+sous la forme de trois
 intervalles indépendants et entiers :
 
 ```text
@@ -20,11 +21,15 @@ intervalles indépendants et entiers :
 Exemple : `10a`, `120m`, `521s`. Chaque valeur est calculée directement entre la date
 locale du jour et la date cible avec `ChronoUnit.YEARS`, `ChronoUnit.MONTHS` et
 `ChronoUnit.WEEKS`. Les trois nombres ne sont donc pas les composantes successives d'une
-durée décomposée. Aucun état de compteur n'est persisté.
+durée décomposée. Aucun état de compteur n'est persisté ; seuls la date cible et les deux choix
+de couleur sont conservés dans les préférences privées de l'application.
 
 ## Contraintes fonctionnelles
 
-- La date cible est `2036-03-17` et doit rester centralisée dans `TARGET_DATE`.
+- La date cible par défaut est `2036-03-17` et doit rester centralisée dans `TARGET_DATE`.
+- L'activité impose une date cible strictement postérieure à `LocalDate.now()`. Une valeur
+  persistée devenue invalide est remplacée à la lecture par la date par défaut si elle reste
+  future, sinon par le lendemain.
 - Le calcul utilise `LocalDate.now()` : seule la date civile locale compte.
 - Le rendu comporte exactement trois lignes, dans l'ordre années, mois, semaines.
 - Les suffixes sont respectivement `a`, `m` et `s`, précédés visuellement d'une espace fine
@@ -34,6 +39,8 @@ durée décomposée. Aucun état de compteur n'est persisté.
   - après le démarrage complet du téléphone ;
   - après le remplacement de l'APK ;
   - après une modification manuelle de l'heure ou du fuseau horaire ;
+  - lorsque le processus reçoit un changement de configuration clair/sombre du système ;
+  - immédiatement après une modification des réglages dans l'activité ;
   - chaque jour à la prochaine heure locale de 01:00 ;
   - immédiatement lorsque l'utilisateur touche le widget.
 - Après chaque alarme ou événement système, la prochaine alarme locale de 01:00 est
@@ -48,7 +55,9 @@ durée décomposée. Aucun état de compteur n'est persisté.
 
 - Taille cible et taille minimale : **2 colonnes × 2 lignes** (`2x2`).
 - Fond entièrement transparent.
-- Texte blanc dessiné avec la police embarquée `Noto Mono Regular`, sans graisse forcée. Le
+- Texte dessiné avec la police embarquée `Noto Mono Regular`, sans graisse forcée. Sa couleur
+  provient du réglage correspondant au mode clair ou sombre courant ; les valeurs par défaut sont
+  noir en mode clair et blanc en mode sombre. Le
   rendu réel est produit dans le processus de l'application par `Canvas` et `Paint`, puis transmis
   sous forme de bitmap à un `ImageView` `RemoteViews`. Le lanceur ne reçoit donc plus du texte et
   ne peut plus remplacer la police par une police proportionnelle.
@@ -69,6 +78,22 @@ durée décomposée. Aucun état de compteur n'est persisté.
   fidèle au rendu réel : police monospace, alignement à droite, espace fine et valeurs
   représentatives `10 a`, `120 m`, `521 s`. Il ne doit pas utiliser `...` ni de faux zéros.
 
+## Activité de réglages
+
+- L'activité utilise Material Components 1.14.0, le thème `Theme.Material3.DayNight.NoActionBar`
+  et suit automatiquement le mode clair ou sombre du système.
+- Les éléments sont affichés verticalement : titre `Memento Mori widget`, section `Target date`
+  avec `MaterialDatePicker`, puis section `Font color` avec les sous-sections `Light mode` et
+  `Dark mode`.
+- Le sélecteur de date bloque toutes les dates antérieures ou égales à la date locale courante.
+- Chaque couleur est choisie dans un dialogue Material avec aperçu et curseurs rouge, vert et
+  bleu. Les couleurs enregistrées sont opaques.
+- Toute modification est persistée dans les préférences privées de l'application et provoque un
+  rafraîchissement immédiat de toutes les instances du widget.
+- `MementoMoriApplication.onConfigurationChanged` rafraîchit les widgets lorsque le processus
+  reçoit le changement de mode. Si le processus n'est pas vivant, le prochain événement normal
+  du widget ou un toucher relit toujours le mode système courant avant le rendu.
+
 ## Icône
 
 L'icône officielle est le sablier blanc sur fond anthracite. Le manifeste doit utiliser
@@ -79,8 +104,14 @@ il devient invisible ou entièrement blanc sur certains lanceurs.
 
 ## Architecture et fichiers importants
 
-- `app/src/main/java/com/github/panlelapin/mementomori/MainActivity.kt` contient l'activité de
-  lancement minimale affichée depuis le tiroir d'applications.
+- `app/src/main/java/com/github/panlelapin/mementomori/MainActivity.kt` contient l'activité
+  Material de réglages affichée depuis le tiroir d'applications.
+- `app/src/main/java/com/github/panlelapin/mementomori/MaterialColorPicker.kt` contient le
+  dialogue Material de sélection RVB.
+- `app/src/main/java/com/github/panlelapin/mementomori/WidgetSettings.kt` contient les règles
+  pures de validation/sélection et la persistance privée des réglages.
+- `app/src/main/java/com/github/panlelapin/mementomori/MementoMoriApplication.kt` relaie les
+  changements de configuration reçus par le processus vers les widgets actifs.
 - `app/src/main/java/com/github/panlelapin/mementomori/BasicWidget.kt` contient le rendu
   `RemoteViews`, le receiver AppWidget et l'action exécutée au toucher.
 - `app/src/main/java/com/github/panlelapin/mementomori/DailyUpdateReceiver.kt` contient le
@@ -90,8 +121,8 @@ il devient invisible ou entièrement blanc sur certains lanceurs.
   date cible et le calcul pur des intervalles.
 - `app/src/main/java/com/github/panlelapin/mementomori/WidgetFontSizeCalculator.kt` contient
   le calcul pur de la taille de police.
-- `app/src/main/AndroidManifest.xml` déclare les deux receivers et la permission
-  `RECEIVE_BOOT_COMPLETED`. Les receivers restent non exportés.
+- `app/src/main/AndroidManifest.xml` déclare l'application, l'activité, les deux receivers et la
+  permission `RECEIVE_BOOT_COMPLETED`. Les receivers restent non exportés.
 - `app/src/main/res/xml/basic_widget_info.xml` décrit les dimensions, le redimensionnement
   et l'aperçu du widget.
 - `app/src/main/res/layout/widget_preview.xml` est uniquement l'aperçu statique du
@@ -101,7 +132,8 @@ il devient invisible ou entièrement blanc sur certains lanceurs.
 
 ## Socle Android
 
-- Kotlin, les APIs Android AppWidget/RemoteViews et une activité Android minimale.
+- Kotlin, Material Components 1.14.0, les APIs Android AppWidget/RemoteViews et une activité
+  Material 3 DayNight.
 - `applicationId` et namespace : `com.github.panlelapin.mementomori`.
 - `minSdk = 34` (Android 14), `targetSdk = 36`, `compileSdk = 36`.
 - Java/Kotlin JVM 17.
@@ -124,12 +156,13 @@ il devient invisible ou entièrement blanc sur certains lanceurs.
 
 ## Règles de modification
 
-- Préserver l'architecture du widget et ne pas ajouter d'interface supplémentaire à l'activité
-  au-delà du label demandé.
-- Ne pas ajouter de réseau, de télémétrie, de stockage persistant ou de travail périodique
-  en arrière-plan sans demande explicite.
+- Préserver l'architecture du widget et les trois réglages définis pour l'activité.
+- Ne pas ajouter de réseau, de télémétrie ou de travail périodique en arrière-plan sans demande
+  explicite. La persistance autorisée reste limitée à la date cible et aux deux couleurs.
 - Garder le calcul de date et le calcul typographique purs, déterministes et couverts par
   des tests JVM.
+- Garder également pures et testées la validation de la date cible et la sélection de couleur
+  selon le mode système.
 - Toute modification du comportement doit mettre à jour les tests et ce document si ses
   garanties changent.
 - Ne jamais considérer l'aperçu XML comme le rendu réel : seul `BasicWidgetRenderer` produit les
@@ -163,7 +196,8 @@ Ce dépôt est suivi avec la skill Codex `make-android-widget`.
 6. Une CI réussie prouve la compilation de l'APK, pas son comportement réel sur appareil.
    Pour la validation finale, installer l'APK sur Android 14 ou plus récent et vérifier :
     l'icône du sélecteur, la taille initiale 2x2, l'absence de troncature, le toucher, le
-   redémarrage et la présence de la prochaine alarme de 01:00. Si un appareil ADB autorisé
+   redémarrage, la prochaine alarme de 01:00, la persistance des réglages et le basculement
+   clair/sombre de l'activité et du widget. Si un appareil ADB autorisé
    est connecté, `make-remote` effectue automatiquement l'installation et la vérification
    cryptographique, mais les essais fonctionnels du widget restent à faire et à rapporter
    séparément.

@@ -7,12 +7,12 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
-import android.net.Uri
 import android.os.Bundle
 import android.util.TypedValue
 import android.widget.RemoteViews
+import androidx.core.graphics.createBitmap
+import androidx.core.net.toUri
 import java.time.LocalDate
 import kotlin.math.roundToInt
 
@@ -92,7 +92,10 @@ internal object BasicWidgetRenderer {
         appWidgetId: Int,
     ): RemoteViews {
         val options = AppWidgetManager.getInstance(context).getAppWidgetOptions(appWidgetId)
-        val labels = CountdownCalculator.from(LocalDate.now()).labels()
+        val today = LocalDate.now()
+        val settings = WidgetSettingsStore.load(context = context, today = today)
+        val labels =
+            CountdownCalculator.from(today = today, targetDate = settings.targetDate).labels()
         val widthDp = currentWidthDp(options)
         val heightDp = currentHeightDp(options)
         val fontSize =
@@ -107,8 +110,12 @@ internal object BasicWidgetRenderer {
                 context = context,
                 widthDp = widthDp,
                 heightDp = heightDp,
-                fontSizeSp = fontSize,
                 labels = labels,
+                style =
+                    WidgetBitmapStyle(
+                        fontSizeSp = fontSize,
+                        fontColor = WidgetSettingsStore.currentFontColor(context, settings),
+                    ),
             )
 
         return RemoteViews(context.packageName, R.layout.widget_content).apply {
@@ -150,11 +157,16 @@ internal object BasicWidgetRenderer {
             appWidgetId,
             Intent(context, BasicWidgetReceiver::class.java)
                 .setAction(REFRESH_ACTION)
-                .setData(Uri.parse("mementomori://widget/$appWidgetId"))
+                .setData("mementomori://widget/$appWidgetId".toUri())
                 .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 }
+
+internal data class WidgetBitmapStyle(
+    val fontSizeSp: Float,
+    val fontColor: Int,
+)
 
 /** Draws the complete widget in the application process with the exact bundled typeface. */
 internal object WidgetBitmapRenderer {
@@ -162,21 +174,25 @@ internal object WidgetBitmapRenderer {
         context: Context,
         widthDp: Float,
         heightDp: Float,
-        fontSizeSp: Float,
         labels: List<String>,
+        style: WidgetBitmapStyle,
     ): Bitmap {
         val metrics = context.resources.displayMetrics
         val widthPx = (widthDp * metrics.density).roundToInt().coerceAtLeast(1)
         val heightPx = (heightDp * metrics.density).roundToInt().coerceAtLeast(1)
-        val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+        val bitmap = createBitmap(width = widthPx, height = heightPx)
         bitmap.density = metrics.densityDpi
 
         val paint =
             Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
-                color = Color.WHITE
+                color = style.fontColor
                 textAlign = Paint.Align.RIGHT
                 textSize =
-                    TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, fontSizeSp, metrics)
+                    TypedValue.applyDimension(
+                        TypedValue.COMPLEX_UNIT_SP,
+                        style.fontSizeSp,
+                        metrics,
+                    )
                 typeface = context.resources.getFont(R.font.noto_mono_regular)
             }
         val fontMetrics = paint.fontMetrics

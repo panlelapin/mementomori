@@ -21,10 +21,13 @@ internal fun Countdown.labels(): List<String> =
     )
 
 internal object CountdownCalculator {
-    fun from(today: LocalDate): Countdown =
+    fun from(
+        today: LocalDate,
+        targetDate: LocalDate = TARGET_DATE,
+    ): Countdown =
         Countdown(
-            years = ChronoUnit.YEARS.between(today, TARGET_DATE),
-            months = ChronoUnit.MONTHS.between(today, TARGET_DATE),
-            weeks = ChronoUnit.WEEKS.between(today, TARGET_DATE),
+            years = ChronoUnit.YEARS.between(today, targetDate),
+            months = ChronoUnit.MONTHS.between(today, targetDate),
+            weeks = ChronoUnit.WEEKS.between(today, targetDate),
         )
 }

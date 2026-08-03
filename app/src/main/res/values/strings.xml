@@ -1,6 +1,14 @@
 <resources>
     <string name="app_name">Memento Mori</string>
-    <string name="activity_text">texte</string>
+    <string name="settings_title">Memento Mori widget</string>
+    <string name="target_date">Target date</string>
+    <string name="target_date_must_be_future">Target date must be in the future</string>
+    <string name="font_color">Font color</string>
+    <string name="light_mode">Light mode</string>
+    <string name="dark_mode">Dark mode</string>
+    <string name="red">Red</string>
+    <string name="green">Green</string>
+    <string name="blue">Blue</string>
     <string name="widget_description">Memento Mori</string>
     <string name="widget_preview_text">10 a\n120 m\n521 s</string>
 </resources>
