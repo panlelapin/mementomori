@@ -8,7 +8,7 @@ class CountdownCalculatorTest {
     @Test
     fun labelsUseThinSpacingBeforeSuffix() {
         assertEquals(
-            listOf("10\u2009a", "120\u2009m", "521\u2009s"),
+            listOf("10\u2009Y", "120\u2009M", "521\u2009W"),
             Countdown(years = 10, months = 120, weeks = 521).labels(),
         )
     }
@@ -22,15 +22,15 @@ class CountdownCalculatorTest {
     fun countsOnlyCompleteIntervals() {
         assertEquals(
             Countdown(years = 0, months = 0, weeks = 1),
-            CountdownCalculator.from(LocalDate.of(2036, 3, 10)),
+            CountdownCalculator.from(TARGET_DATE.minusWeeks(1)),
         )
         assertEquals(
             Countdown(years = 0, months = 1, weeks = 4),
-            CountdownCalculator.from(LocalDate.of(2036, 2, 17)),
+            CountdownCalculator.from(TARGET_DATE.minusMonths(1)),
         )
         assertEquals(
             Countdown(years = 1, months = 12, weeks = 52),
-            CountdownCalculator.from(LocalDate.of(2035, 3, 17)),
+            CountdownCalculator.from(TARGET_DATE.minusYears(1)),
         )
     }
 

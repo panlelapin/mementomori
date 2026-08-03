@@ -50,7 +50,7 @@ internal object WidgetSettingsStore {
                 ?: TargetDatePolicy.defaultFor(today)
         return WidgetSettings(
             targetDate = targetDate,
-            lightFontColor = preferences.getInt(LIGHT_FONT_COLOR_KEY, Color.BLACK),
+            lightFontColor = preferences.getInt(LIGHT_FONT_COLOR_KEY, Color.GRAY),
             darkFontColor = preferences.getInt(DARK_FONT_COLOR_KEY, Color.WHITE),
         )
     }

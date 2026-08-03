@@ -3,7 +3,7 @@ package com.github.panlelapin.mementomori
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
-internal val TARGET_DATE: LocalDate = LocalDate.of(2036, 3, 17)
+internal val TARGET_DATE: LocalDate = LocalDate.of(2040, 1, 1)
 
 private const val THIN_SPACE = "\u2009"
 
@@ -15,9 +15,9 @@ internal data class Countdown(
 
 internal fun Countdown.labels(): List<String> =
     listOf(
-        "${years}${THIN_SPACE}a",
-        "${months}${THIN_SPACE}m",
-        "${weeks}${THIN_SPACE}s",
+        "${years}${THIN_SPACE}Y",
+        "${months}${THIN_SPACE}M",
+        "${weeks}${THIN_SPACE}W",
     )
 
 internal object CountdownCalculator {

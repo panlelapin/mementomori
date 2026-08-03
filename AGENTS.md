@@ -8,17 +8,17 @@ Ce dépôt contient **Memento Mori**, un widget Android d'écran d'accueil écri
 L'application contient le widget et une activité Material 3 de réglages, sans service permanent.
 L'activité permet de choisir la date cible et les couleurs du texte pour les modes clair et sombre.
 
-Le widget affiche le temps restant jusqu'à une date cible, fixée par défaut au **17 mars 2036**,
+Le widget affiche le temps restant jusqu'à une date cible, fixée par défaut au **1er janvier 2040**,
 sous la forme de trois
 intervalles indépendants et entiers :
 
 ```text
-<années>a
-<mois>m
-<semaines>s
+<années>Y
+<mois>M
+<semaines>W
 ```
 
-Exemple : `10a`, `120m`, `521s`. Chaque valeur est calculée directement entre la date
+Exemple : `10Y`, `120M`, `521W`. Chaque valeur est calculée directement entre la date
 locale du jour et la date cible avec `ChronoUnit.YEARS`, `ChronoUnit.MONTHS` et
 `ChronoUnit.WEEKS`. Les trois nombres ne sont donc pas les composantes successives d'une
 durée décomposée. Aucun état de compteur n'est persisté ; seuls la date cible et les deux choix
@@ -26,14 +26,14 @@ de couleur sont conservés dans les préférences privées de l'application.
 
 ## Contraintes fonctionnelles
 
-- La date cible par défaut est `2036-03-17` et doit rester centralisée dans `TARGET_DATE`.
+- La date cible par défaut est `2040-01-01` et doit rester centralisée dans `TARGET_DATE`.
 - L'activité impose une date cible strictement postérieure à `LocalDate.now()`. Une valeur
   persistée devenue invalide est remplacée à la lecture par la date par défaut si elle reste
   future, sinon par le lendemain.
 - Le calcul utilise `LocalDate.now()` : seule la date civile locale compte.
 - Le rendu comporte exactement trois lignes, dans l'ordre années, mois, semaines.
-- Les suffixes sont respectivement `a`, `m` et `s`, précédés visuellement d'une espace fine
-  Unicode `U+2009` : par exemple `10 a`, `120 m`, `521 s`.
+- Les suffixes sont respectivement `Y`, `M` et `W`, précédés visuellement d'une espace fine
+  Unicode `U+2009` : par exemple `10 Y`, `120 M`, `521 W`.
 - Le widget est recalculé et redessiné :
   - lors de son ajout ou d'une mise à jour demandée par le lanceur ;
   - après le démarrage complet du téléphone ;
@@ -57,7 +57,7 @@ de couleur sont conservés dans les préférences privées de l'application.
 - Fond entièrement transparent.
 - Texte dessiné avec la police embarquée `Noto Mono Regular`, sans graisse forcée. Sa couleur
   provient du réglage correspondant au mode clair ou sombre courant ; les valeurs par défaut sont
-  noir en mode clair et blanc en mode sombre. Le
+  gris moyen (`#FF888888`) en mode clair et blanc en mode sombre. Le
   rendu réel est produit dans le processus de l'application par `Canvas` et `Paint`, puis transmis
   sous forme de bitmap à un `ImageView` `RemoteViews`. Le lanceur ne reçoit donc plus du texte et
   ne peut plus remplacer la police par une police proportionnelle.
@@ -76,7 +76,8 @@ de couleur sont conservés dans les préférences privées de l'application.
   recalculés selon ses dimensions réelles.
 - L'aperçu statique du sélecteur ne réalise aucun calcul, mais doit rester visuellement
   fidèle au rendu réel : police monospace, alignement à droite, espace fine et valeurs
-  représentatives `10 a`, `120 m`, `521 s`. Il ne doit pas utiliser `...` ni de faux zéros.
+  représentatives `10 Y`, `120 M`, `521 W`. Il ne doit pas utiliser `...` ni de faux zéros. Sa
+  police utilise l'auto-dimensionnement Android pour occuper le cadre 2x2 sans troncature.
   Ses ressources suivent automatiquement le mode système : texte blanc sur fond noir en mode
   clair et texte noir sur fond blanc en mode sombre.
 
