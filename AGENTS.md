@@ -163,6 +163,8 @@ sur certains lanceurs.
 - Le dépôt utilise un verrouillage strict des dépendances et la vérification des sommes de
   contrôle Gradle. Toute nouvelle dépendance exige une mise à jour contrôlée des fichiers
   de vérification.
+- La CI configure explicitement `packages: platform-tools` dans `setup-android` : sa valeur
+  par défaut inclut l'ancien paquet `tools`, qui n'est plus disponible. Ne pas le réintroduire.
 - Robolectric utilise Android 14 via un JAR explicitement résolu, verrouillé et vérifié par
   Gradle ; son téléchargement implicite est désactivé. Il ne compile aucun APK local.
 - La distribution utilise une clé persistante externe au suivi Git et vérifie son empreinte

@@ -169,6 +169,12 @@ text = path.read_text(encoding="utf-8")
 assert "qualityCheck" in text
 assert "assembleRelease" in text
 assert "scripts/verify-apk" in text
+sdk_steps = [step for job in workflow["jobs"].values() for step in job["steps"]
+             if step.get("uses", "").startswith("android-actions/setup-android@")]
+assert sdk_steps, "Android SDK setup is required"
+for step in sdk_steps:
+    packages = step.get("with", {}).get("packages", "tools platform-tools").split()
+    assert "tools" not in packages, "Retired SDK package 'tools' must not be requested"
 print("Workflow is YAML-valid and has the required manual release checks.")
 PY
 }

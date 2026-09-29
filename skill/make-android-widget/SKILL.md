@@ -238,6 +238,10 @@ Use `workflow_dispatch` as the only trigger. Keep explicit read-only token permi
 
 Do not add `push`, `pull_request`, or scheduled triggers. Let `make-remote` dispatch the workflow after pushing the intended commit.
 
+Set `packages: platform-tools` explicitly on `android-actions/setup-android`. The pinned action's
+implicit `tools platform-tools` default requests the retired `tools` package and fails before
+the build. Install the chosen platform/build-tools in the following explicit SDK step.
+
 ## Delegate all remote builds to `make-remote`
 
 Copy [make-remote](scripts/make-remote) unchanged except for its configuration variables. Require it to:

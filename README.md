@@ -33,6 +33,7 @@ After a successful matching check, `scripts/make-remote` commits, pushes, dispat
 manual release workflow and verifies the downloaded APK. `--resume RUN_ID` resumes a
 successful build of the exact current commit with a clean checkout. All release assemblies
 depend on the quality gate, including the script regression tests.
+The Android setup step explicitly requests `platform-tools`, not the retired SDK package `tools`.
 
 `scripts/check-github-stuff` checks or configures the GitHub repository/origin. It is **not a
 purge script**: it deletes neither releases, Actions runs nor artifacts. It asks before

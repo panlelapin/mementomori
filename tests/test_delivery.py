@@ -228,6 +228,19 @@ esac
         self.assertIn(b"could not list", result.stderr)
         self.assertEqual(2, len((self.root / "trace").read_text().splitlines()))
 
+    def test_workflow_rejects_retired_sdk_tools_including_implicit_action_default(self):
+        workflow = (ROOT / ".github/workflows/android-widget.yml").read_text()
+        for packages, success in [("platform-tools", True), ("tools platform-tools", False), (None, False)]:
+            with self.subTest(packages=packages):
+                replacement = "" if packages is None else "          packages: " + packages + "\n"
+                content = re.sub(r"(?m)^          packages: platform-tools\n", replacement, workflow)
+                path = self.write("workflow.yml", content)
+                result = subprocess.run(
+                    ["bash", "-c", 'source "$1"; WORKFLOW_FILE=$2; check_workflow', "test",
+                     str(ROOT / "scripts/check-local"), str(path)], capture_output=True,
+                )
+                self.assertEqual(success, result.returncode == 0)
+
 
 if __name__ == "__main__":
     unittest.main()
