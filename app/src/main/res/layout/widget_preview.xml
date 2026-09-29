@@ -1,21 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- This preview is launcher-inflated and does not cover an activity theme window background. -->
-<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Static outlined Noto Mono preview; no launcher font substitution or full-width thin space. -->
+<ImageView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:autoSizeMaxTextSize="32sp"
-    android:autoSizeMinTextSize="12sp"
-    android:autoSizeStepGranularity="1sp"
-    android:autoSizeTextType="uniform"
     android:background="@color/widget_preview_background"
-    android:fontFamily="@font/noto_mono_regular"
-    android:gravity="end|center_vertical"
-    android:includeFontPadding="false"
-    android:lineSpacingMultiplier="1.15"
-    android:maxLines="3"
+    android:contentDescription="@string/widget_preview_text"
     android:padding="8dp"
-    android:text="@string/widget_preview_text"
-    android:textColor="@color/widget_preview_foreground"
-    android:typeface="monospace"
+    android:scaleType="fitCenter"
+    android:src="@drawable/widget_preview_text"
     tools:ignore="Overdraw" />

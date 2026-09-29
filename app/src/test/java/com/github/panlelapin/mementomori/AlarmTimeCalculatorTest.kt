@@ -6,6 +6,18 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 
 class AlarmTimeCalculatorTest {
+    @Test
+    fun nextAlarmCrossesActualSpringAndAutumnOffsetChanges() {
+        assertNextAlarm(
+            ZonedDateTime.parse("2026-03-29T01:00:00+01:00[Europe/Paris]"),
+            ZonedDateTime.parse("2026-03-30T01:00:00+02:00[Europe/Paris]"),
+        )
+        assertNextAlarm(
+            ZonedDateTime.parse("2026-10-25T01:00:00+02:00[Europe/Paris]"),
+            ZonedDateTime.parse("2026-10-26T01:00:00+01:00[Europe/Paris]"),
+        )
+    }
+
     private val paris: ZoneId = ZoneId.of("Europe/Paris")
 
     @Test

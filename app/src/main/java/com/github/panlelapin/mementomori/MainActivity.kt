@@ -22,7 +22,6 @@ import java.util.Locale
 
 private const val DATE_PICKER_TAG = "target_date_picker"
 private const val RGB_MASK = 0x00FFFFFF
-private const val DARK_TEXT_LUMINANCE_THRESHOLD = 0.5
 
 /** Material 3 settings screen for the widget target date and day/night font colors. */
 class MainActivity : AppCompatActivity() {
@@ -40,6 +39,19 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         applySystemBarInsets()
+        restoreDatePickerListener()
+        supportFragmentManager.setFragmentResultListener(
+            MaterialColorPicker.RESULT_KEY,
+            this,
+        ) { _, result ->
+            val color = result.getInt(MaterialColorPicker.COLOR_KEY)
+            if (result.getBoolean(MaterialColorPicker.DARK_MODE_KEY)) {
+                WidgetSettingsStore.saveDarkFontColor(this, color)
+            } else {
+                WidgetSettingsStore.saveLightFontColor(this, color)
+            }
+            settingsChanged()
+        }
         targetDateButton.setOnClickListener { showTargetDatePicker() }
         lightColorButton.setOnClickListener { showColorPicker(darkMode = false) }
         darkColorButton.setOnClickListener { showColorPicker(darkMode = true) }
@@ -53,7 +65,10 @@ class MainActivity : AppCompatActivity() {
         val initialRight = content.paddingRight
         val initialBottom = content.paddingBottom
         ViewCompat.setOnApplyWindowInsetsListener(content) { view, windowInsets ->
-            val systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val systemBars =
+                windowInsets.getInsets(
+                    WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
+                )
             view.setPadding(
                 initialLeft + systemBars.left,
                 initialTop + systemBars.top,
@@ -71,6 +86,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showTargetDatePicker() {
+        if (supportFragmentManager.findFragmentByTag(DATE_PICKER_TAG) != null) return
         val today = LocalDate.now()
         val tomorrow = today.plusDays(1)
         val settings = WidgetSettingsStore.load(context = this, today = today)
@@ -87,10 +103,24 @@ class MainActivity : AppCompatActivity() {
                 .setSelection(settings.targetDate.toUtcMilliseconds())
                 .setCalendarConstraints(constraints)
                 .build()
-        picker.addOnPositiveButtonClickListener { selection ->
-            saveTargetDate(selection.toLocalDateUtc())
-        }
+        attachDatePickerListener(picker)
         picker.show(supportFragmentManager, DATE_PICKER_TAG)
+    }
+
+    private fun restoreDatePickerListener() {
+        // FragmentManager restores the picker, but Material does not persist lambda listeners.
+        val picker =
+            supportFragmentManager.findFragmentByTag(
+                DATE_PICKER_TAG,
+            ) as? MaterialDatePicker<*>
+        if (picker != null) attachDatePickerListener(picker)
+    }
+
+    private fun attachDatePickerListener(picker: MaterialDatePicker<*>) {
+        picker.clearOnPositiveButtonClickListeners()
+        picker.addOnPositiveButtonClickListener { selection ->
+            if (selection is Long) saveTargetDate(selection.toLocalDateUtc())
+        }
     }
 
     private fun saveTargetDate(targetDate: LocalDate) {
@@ -108,6 +138,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showColorPicker(darkMode: Boolean) {
+        if (supportFragmentManager.findFragmentByTag(MaterialColorPicker.RESULT_KEY) != null) return
         val settings = WidgetSettingsStore.load(this)
         val initialColor =
             WidgetColorSelector.select(
@@ -115,19 +146,9 @@ class MainActivity : AppCompatActivity() {
                 lightColor = settings.lightFontColor,
                 darkColor = settings.darkFontColor,
             )
-        val title = if (darkMode) R.string.dark_mode else R.string.light_mode
-        MaterialColorPicker.show(
-            context = this,
-            title = title,
-            initialColor = initialColor,
-        ) { color ->
-            if (darkMode) {
-                WidgetSettingsStore.saveDarkFontColor(context = this, color = color)
-            } else {
-                WidgetSettingsStore.saveLightFontColor(context = this, color = color)
-            }
-            settingsChanged()
-        }
+        MaterialColorPicker
+            .newInstance(darkMode, initialColor)
+            .show(supportFragmentManager, MaterialColorPicker.RESULT_KEY)
     }
 
     private fun settingsChanged() {
@@ -137,7 +158,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderSettings() {
         val settings = WidgetSettingsStore.load(this)
-        targetDateButton.text = settings.targetDate.formatForDisplay()
+        targetDateButton.text =
+            settings.targetDate.formatForDisplay(resources.configuration.locales[0])
+        targetDateButton.contentDescription =
+            getString(R.string.target_date_accessibility, targetDateButton.text)
         renderColorButton(button = lightColorButton, color = settings.lightFontColor)
         renderColorButton(button = darkColorButton, color = settings.darkFontColor)
     }
@@ -148,25 +172,30 @@ class MainActivity : AppCompatActivity() {
     ) {
         button.text = String.format(Locale.ROOT, "#%06X", color and RGB_MASK)
         button.backgroundTintList = ColorStateList.valueOf(color)
-        button.setTextColor(
-            if (ColorUtils.calculateLuminance(color) > DARK_TEXT_LUMINANCE_THRESHOLD) {
-                Color.BLACK
-            } else {
-                Color.WHITE
-            },
-        )
+        val blackContrast = ColorUtils.calculateContrast(Color.BLACK, color)
+        val whiteContrast = ColorUtils.calculateContrast(Color.WHITE, color)
+        button.setTextColor(if (blackContrast >= whiteContrast) Color.BLACK else Color.WHITE)
+        val mode =
+            getString(
+                if (button.id ==
+                    R.id.light_color_button
+                ) {
+                    R.string.light_mode
+                } else {
+                    R.string.dark_mode
+                },
+            )
+        button.contentDescription = getString(R.string.color_accessibility, mode, button.text)
     }
-
-    private fun LocalDate.formatForDisplay(): String =
-        format(
-            DateTimeFormatter
-                .ofLocalizedDate(FormatStyle.LONG)
-                .withLocale(resources.configuration.locales[0]),
-        )
 }
 
-private fun LocalDate.toUtcMilliseconds(): Long =
+private fun LocalDate.formatForDisplay(locale: Locale): String =
+    format(DateTimeFormatter.ofLocalizedDate(FormatStyle.LONG).withLocale(locale))
+
+/** MaterialDatePicker encodes civil dates at UTC midnight; this is not a local instant. */
+internal fun LocalDate.toUtcMilliseconds(): Long =
     atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
 
-private fun Long.toLocalDateUtc(): LocalDate =
+/** Decode the UTC date without shifting it through the user's time zone. */
+internal fun Long.toLocalDateUtc(): LocalDate =
     Instant.ofEpochMilli(this).atZone(ZoneOffset.UTC).toLocalDate()

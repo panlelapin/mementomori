@@ -5,7 +5,7 @@ import java.time.temporal.ChronoUnit
 
 internal val TARGET_DATE: LocalDate = LocalDate.of(2040, 1, 1)
 
-private const val THIN_SPACE = "\u2009"
+internal const val THIN_SPACE = "\u2009"
 
 internal data class Countdown(
     val years: Long,
@@ -20,6 +20,7 @@ internal fun Countdown.labels(): List<String> =
         "${weeks}${THIN_SPACE}W",
     )
 
+/** Independent whole calendar intervals, never the successive components of a duration. */
 internal object CountdownCalculator {
     fun from(
         today: LocalDate,

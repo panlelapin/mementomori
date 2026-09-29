@@ -11,5 +11,8 @@
     <string name="green">Green</string>
     <string name="blue">Blue</string>
     <string name="widget_description">Memento Mori</string>
+    <string name="countdown_accessibility">Full years: %1$d. Full months: %2$d. Full weeks: %3$d. Activate to refresh.</string>
+    <string name="target_date_accessibility">Target date: %1$s. Activate to change.</string>
+    <string name="color_accessibility">%1$s font color: %2$s. Activate to change.</string>
     <string name="widget_preview_text">10 Y\n120 M\n521 W</string>
 </resources>

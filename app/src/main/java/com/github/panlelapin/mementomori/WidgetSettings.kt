@@ -17,7 +17,7 @@ internal data class WidgetSettings(
     val darkFontColor: Int,
 )
 
-/** Pure rules used to keep the configured date strictly in the future. */
+/** Civil dates must be strictly future; an expired default becomes tomorrow after 2040. */
 internal object TargetDatePolicy {
     fun isValid(
         today: LocalDate,
@@ -37,7 +37,10 @@ internal object WidgetColorSelector {
     ): Int = if (darkMode) darkColor else lightColor
 }
 
-/** Stores user settings in the application's private persistent preferences. */
+/**
+ * Persists only the date and opaque colors. Invalid/expired dates fall back at read time without
+ * rewriting the user's saved value; countdowns always derive from the caller's local [LocalDate].
+ */
 internal object WidgetSettingsStore {
     fun load(
         context: Context,
@@ -74,7 +77,7 @@ internal object WidgetSettingsStore {
         color: Int,
     ) {
         preferences(context).edit {
-            putInt(LIGHT_FONT_COLOR_KEY, color)
+            putInt(LIGHT_FONT_COLOR_KEY, color or Color.BLACK)
         }
     }
 
@@ -83,7 +86,7 @@ internal object WidgetSettingsStore {
         color: Int,
     ) {
         preferences(context).edit {
-            putInt(DARK_FONT_COLOR_KEY, color)
+            putInt(DARK_FONT_COLOR_KEY, color or Color.BLACK)
         }
     }
 

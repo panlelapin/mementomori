@@ -66,18 +66,20 @@ de couleur sont conservés dans les préférences privées de l'application.
   inférieur à une largeur de glyphe, tout en conservant Noto Mono pour tous les caractères.
 - L'ensemble de la surface est cliquable et déclenche un recalcul suivi d'un nouveau
   rendu.
-- La taille de police n'est jamais une constante visuelle. Elle est calculée depuis les
-  dimensions réelles fournies par les options AppWidget, le facteur de police Android, les marges et la
-  longueur de la ligne la plus longue, puis agrandie par un facteur visuel de 1,35.
-- Le calcul doit employer des coefficients conservateurs pour la largeur d'un glyphe
-  monospace et la hauteur d'une ligne. Les trois lignes doivent toujours rester visibles,
-  complètes, sur une seule ligne chacune, sans coupure ni retour à la ligne.
+- La taille de police est calculée depuis les dimensions exactes `OPTION_APPWIDGET_SIZES`.
+  Pour les anciens hosts, associer largeur minimale/hauteur maximale en portrait et l'inverse
+  en paysage. Le facteur visuel de 1,35 s'applique à une taille candidate, ensuite plafonnée
+  par les mesures réelles de `Paint`, les trois lignes et leurs espacements. Les conversions
+  sp utilisent `TypedValue`, jamais une division linéaire par `Configuration.fontScale`.
+- Le calcul pur fournit un facteur uniforme garantissant les marges ; aucun glyphe ne doit être
+  tronqué. L'ImageView utilise `fitCenter` pour ne jamais déformer la police.
 - Le widget peut être agrandi jusqu'à `4x4` environ ; le bitmap et la police doivent alors être
   recalculés selon ses dimensions réelles.
 - L'aperçu statique du sélecteur ne réalise aucun calcul, mais doit rester visuellement
   fidèle au rendu réel : police monospace, alignement à droite, espace fine et valeurs
   représentatives `10 Y`, `120 M`, `521 W`. Il ne doit pas utiliser `...` ni de faux zéros. Sa
-  police utilise l'auto-dimensionnement Android pour occuper le cadre 2x2 sans troncature.
+  police est convertie en contours vectoriels Noto Mono, avec le même espacement de suffixe
+  de 0,10 em ; l'ImageView ajuste le dessin sans déformation ni substitution de police.
   Ses ressources suivent automatiquement le mode système : texte blanc sur fond noir en mode
   clair et texte noir sur fond blanc en mode sombre.
 
@@ -89,11 +91,15 @@ de couleur sont conservés dans les préférences privées de l'application.
 - Les éléments sont affichés verticalement : titre `Memento Mori widget`, paragraphe expliquant
   les trois intervalles affichés, section `Target date` avec `MaterialDatePicker`, puis section
   `Font color` avec les sous-sections `Light mode` et `Dark mode`. Le contenu ajoute les insets
-  des barres système à son padding afin que le titre ne soit pas collé en haut en mode bord à
+  des barres système et des découpes d'écran à son padding afin que le titre ne soit pas collé en haut en mode bord à
   bord.
 - Le sélecteur de date bloque toutes les dates antérieures ou égales à la date locale courante.
 - Chaque couleur est choisie dans un dialogue Material avec aperçu et curseurs rouge, vert et
-  bleu. Les couleurs enregistrées sont opaques.
+  bleu. Le DialogFragment sauvegarde les canaux non confirmés et utilise FragmentResult pour
+  transmettre le choix après recréation. Les couleurs enregistrées sont opaques.
+- Le callback du MaterialDatePicker restauré est reconnecté dans `onCreate`.
+- Le texte noir ou blanc des boutons maximise le contraste ; les commandes et le widget
+  disposent de descriptions d'accessibilité explicites.
 - Toute modification est persistée dans les préférences privées de l'application et provoque un
   rafraîchissement immédiat de toutes les instances du widget.
 - `MementoMoriApplication.onConfigurationChanged` rafraîchit les widgets lorsque le processus
@@ -119,8 +125,9 @@ sur certains lanceurs.
   pures de validation/sélection et la persistance privée des réglages.
 - `app/src/main/java/com/github/panlelapin/mementomori/MementoMoriApplication.kt` relaie les
   changements de configuration reçus par le processus vers les widgets actifs.
-- `app/src/main/java/com/github/panlelapin/mementomori/BasicWidget.kt` contient le rendu
-  `RemoteViews`, le receiver AppWidget et l'action exécutée au toucher.
+- `BasicWidgetReceiver.kt` contient uniquement le cycle de vie et l'action au toucher.
+- `BasicWidgetRenderer.kt` orchestre réglages, tailles et RemoteViews.
+- `WidgetBitmapRenderer.kt` dessine les pixels en mesurant la police embarquée.
 - `app/src/main/java/com/github/panlelapin/mementomori/DailyUpdateReceiver.kt` contient le
   receiver des événements temporels, la gestion de l'alarme et le calcul pur de la
   prochaine heure locale de 01:00.
@@ -135,7 +142,9 @@ sur certains lanceurs.
 - `app/src/main/res/layout/widget_preview.xml` est uniquement l'aperçu statique du
   sélecteur ; il ne réalise aucun calcul.
 - `app/src/main/res/mipmap-anydpi-v26/app_icon.xml` est l'icône adaptative Android.
-- `app/src/test/` contient les tests JVM du calcul de date et de la taille de police.
+- `app/src/test/` contient les tests JVM purs et les tests Android Robolectric avec rendu natif.
+- `tests/test_delivery.py` vérifie les scripts dans des dépôts temporaires avec outils simulés.
+- `docs/TESTING.md` décrit les scénarios automatisés et les limites des essais simulés.
 
 ## Socle Android
 
@@ -154,6 +163,16 @@ sur certains lanceurs.
 - Le dépôt utilise un verrouillage strict des dépendances et la vérification des sommes de
   contrôle Gradle. Toute nouvelle dépendance exige une mise à jour contrôlée des fichiers
   de vérification.
+- Robolectric utilise Android 14 via un JAR explicitement résolu, verrouillé et vérifié par
+  Gradle ; son téléchargement implicite est désactivé. Il ne compile aucun APK local.
+- La distribution utilise une clé persistante externe au suivi Git et vérifie son empreinte
+  publique dans `config/release-certificate.sha256`. Aucun secret ne doit être journalisé.
+- À la demande de l'utilisateur, une sauvegarde chiffrée récupérable peut être publiée sous
+  `config/signing-backup.tar.gpg`. `scripts/backup-signing-key` archive uniquement la clé et
+  son mot de passe, demande la phrase secrète via GnuPG dans le terminal de l'utilisateur,
+  puis compare le contenu déchiffré aux originaux. Ne jamais demander la phrase dans le chat.
+  Aucun original n'est supprimé automatiquement : vérifier aussi la copie retéléchargée de
+  GitHub et obtenir l'autorisation explicite avant toute suppression. Voir `docs/SIGNING_BACKUP.md`.
 - AGP 9.2.1 n'expose ici que les tests JVM de la variante debug. `qualityCheck` utilise
   donc `testDebugUnitTest` et `koverVerifyDebug`, tout en conservant `detektRelease` et
   `lintRelease` pour contrôler le code destiné à l'APK.
@@ -182,19 +201,26 @@ sur certains lanceurs.
 ## Validation et livraison obligatoires
 
 Ce dépôt est suivi avec la skill Codex `make-android-widget`.
+Lire d'abord sa copie versionnée `skill/make-android-widget/SKILL.md`. Le lien relatif
+`.agents/skills/make-android-widget` permet sa découverte par Codex après un clone, sans
+installation globale. Le dépôt suffit pour les instructions et scripts, mais les outils
+(JDK, SDK Android, Git, gh, Python, ShellCheck, GnuPG) et les connexions restent nécessaires.
 
 1. Après une modification, demander l'accord explicite de l'utilisateur avant d'exécuter
    `scripts/check-local`, car cette commande répond aux exigences de ce fichier.
 2. Exécuter `scripts/check-local` et corriger toutes les erreurs. Cette vérification lance
    le contrôle du formatage, ktlint, detekt, Android lint, les tests JVM, les seuils Kover et les
-   contrôles Gradle stricts, mais ne produit pas d'APK.
+   contrôles Gradle stricts, les tests des scripts et Robolectric, mais ne produit pas d'APK.
+   `assembleRelease` dépend également de `qualityCheck` : aucune compilation release ne peut
+   contourner ces tests. Cela ne remplace pas les essais réels sur un lanceur Android.
 3. Ne lancer une compilation distante qu'après un `check-local` réussi et correspondant
    exactement aux changements à livrer.
 4. Pour compiler et récupérer l'APK, utiliser uniquement `scripts/make-remote`. Ce script
    gère le commit, le push, le déclenchement manuel de GitHub Actions, le téléchargement et
    la vérification de l'artefact. Si une exécution a été interrompue après le succès de sa CI,
    `scripts/make-remote --resume <run-id>` reprend uniquement cet artefact après avoir vérifié
-   son succès et son SHA de commit. En fin de script, s'il trouve exactement un appareil ADB
+   son succès, son SHA de commit et un worktree propre. L'empreinte locale porte sur le contenu
+   et les permissions, pas sur HEAD, afin de rester valide après commit. En fin de script, s'il trouve exactement un appareil ADB
    autorisé, il désinstalle l'ancienne application, installe le nouvel APK et vérifie le
    package, les versions et le SHA-256 exact de l'APK installé. Utiliser `ADB_SERIAL` pour
    sélectionner explicitement un appareil quand plusieurs sont connectés.
@@ -224,6 +250,18 @@ Ce dépôt est suivi avec la skill Codex `make-android-widget`.
 - `scripts/check-local` vérifie la présence de cette copie, qu'elle n'est pas ignorée par Git et
   que ses scripts sont identiques à ceux du dépôt. Avant livraison, l'agent vérifie aussi la
   totalité de l'arborescence copiée contre la source de la skill.
+- `scripts/source-state` fait partie des ressources neutres à synchroniser, avec les tests
+  génériques `tests/test_delivery.py`.
+- Sans installation externe de la skill, la copie versionnée est la source de référence ;
+  ne pas imposer de fichier privé hors du dépôt. Sur un poste qui possède déjà une copie
+  installée, conserver leur synchronisation intégrale.
+- `scripts/check-github-stuff` vérifie/configure le dépôt et son remote ; il ne purge rien.
+- `scripts/backup-signing-key` utilise `--no-keyring` et accepte des noms de fichiers
+  supplémentaires explicites dans son répertoire source. `scripts/export-conversation`
+  extrait uniquement nos messages textuels visibles d'une session locale du même projet,
+  dans un fichier ignoré par Git. Les instructions internes, raisonnements, outils et autres
+  projets sont exclus. Ne jamais publier le JSON en clair ni un journal Codex brut ; seul le
+  fichier chiffré, vérifié puis retéléchargé et vérifié, constitue la sauvegarde autorisée.
 
 ## État attendu à la fin d'une intervention
 

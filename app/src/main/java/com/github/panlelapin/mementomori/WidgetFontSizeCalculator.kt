@@ -1,34 +1,16 @@
 package com.github.panlelapin.mementomori
 
-import kotlin.math.floor
-
-internal const val WIDGET_PADDING_DP = 8f
-
-/** Computes a conservative monospace size that keeps every line fully visible. */
+/** Pure fitting rule; dimensions are pixels measured with the actual typeface and spacing. */
 internal object WidgetFontSizeCalculator {
-    private const val LINE_COUNT = 3
-    private const val MONOSPACE_GLYPH_WIDTH_EM = 0.68f
-    private const val LINE_HEIGHT_EM = 1.35f
-    private const val MINIMUM_FONT_SIZE_SP = 1f
-    private const val FONT_SIZE_MULTIPLIER = 1.35f
-
-    fun calculateSp(
-        widthDp: Float,
-        heightDp: Float,
-        fontScale: Float,
-        labels: List<String>,
+    /** Shrinks uniformly to preserve glyph proportions and both padding constraints. */
+    fun fitScale(
+        width: Float,
+        height: Float,
+        textWidth: Float,
+        textHeight: Float,
     ): Float {
-        require(labels.isNotEmpty())
-        require(fontScale > 0f)
-
-        val availableWidthDp = (widthDp - 2f * WIDGET_PADDING_DP).coerceAtLeast(0f)
-        val availableHeightDp = (heightDp - 2f * WIDGET_PADDING_DP).coerceAtLeast(0f)
-        val longestLineLength = labels.maxOf { it.length }.coerceAtLeast(1)
-        val widthLimitedSp =
-            availableWidthDp / (fontScale * longestLineLength * MONOSPACE_GLYPH_WIDTH_EM)
-        val heightLimitedSp = availableHeightDp / (fontScale * LINE_COUNT * LINE_HEIGHT_EM)
-
-        return (floor(minOf(a = widthLimitedSp, b = heightLimitedSp)) * FONT_SIZE_MULTIPLIER)
-            .coerceAtLeast(MINIMUM_FONT_SIZE_SP)
+        require(width.isFinite() && height.isFinite() && width >= 0f && height >= 0f)
+        require(textWidth.isFinite() && textHeight.isFinite() && textWidth > 0f && textHeight > 0f)
+        return minOf(a = 1f, b = width / textWidth, c = height / textHeight)
     }
 }

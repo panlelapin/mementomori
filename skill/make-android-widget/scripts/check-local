@@ -17,14 +17,7 @@ need() {
 }
 
 current_source_digest() {
-    {
-        git rev-parse HEAD
-        git diff --binary HEAD --
-        while IFS= read -r -d '' path; do
-            printf 'untracked:%s\0' "$path"
-            git hash-object -- "$path"
-        done < <(git ls-files --others --exclude-standard -z)
-    } | sha256sum | sed 's/[[:space:]].*$//'
+    python3 scripts/source-state
 }
 
 # shellcheck disable=SC2317
@@ -131,12 +124,21 @@ run_check() {
 
 # shellcheck disable=SC2317
 check_shell_syntax() {
-    bash -n scripts/check-github-stuff scripts/check-local scripts/make-remote scripts/verify-apk gradlew
+    local script
+    for script in scripts/check-github-stuff scripts/check-local scripts/make-remote scripts/verify-apk gradlew; do
+        bash -n "$script" || return 1
+    done
+    if [[ -e scripts/backup-signing-key ]]; then
+        bash -n scripts/backup-signing-key || return 1
+    fi
 }
 
 # shellcheck disable=SC2317
 check_shellcheck() {
-    shellcheck scripts/check-github-stuff scripts/check-local scripts/make-remote scripts/verify-apk gradlew
+    shellcheck scripts/check-github-stuff scripts/check-local scripts/make-remote scripts/verify-apk gradlew || return 1
+    if [[ -e scripts/backup-signing-key ]]; then
+        shellcheck scripts/backup-signing-key || return 1
+    fi
 }
 
 # shellcheck disable=SC2317
@@ -173,28 +175,47 @@ PY
 
 # shellcheck disable=SC2317
 check_project_contract() {
-    [[ -x gradlew ]]
-    [[ -f gradle/wrapper/gradle-wrapper.jar ]]
-    grep -Eq '^distributionSha256Sum=' gradle/wrapper/gradle-wrapper.properties
-    rg -q 'minSdk = 34' app/build.gradle.kts
+    [[ -x gradlew ]] || return 1
+    [[ -f gradle/wrapper/gradle-wrapper.jar ]] || return 1
+    grep -Eq '^distributionSha256Sum=' gradle/wrapper/gradle-wrapper.properties || return 1
+    rg -q 'minSdk = 34' app/build.gradle.kts || return 1
     if rg -q 'com\.example\.widget' . --glob '!**/build/**' --glob '!skill/make-android-widget/**'; then
         return 1
     fi
-    git check-ignore -q --no-index build/
-    git check-ignore -q --no-index check-local.log
+    git check-ignore -q --no-index build/ || return 1
+    git check-ignore -q --no-index check-local.log || return 1
     if git check-ignore -q --no-index skill/make-android-widget/; then
         return 1
     fi
-    [[ ! -L build ]]
-    [[ -x scripts/check-github-stuff && -x scripts/check-local && -x scripts/make-remote && -x scripts/verify-apk ]]
-    [[ -f skill/make-android-widget/SKILL.md ]]
-    [[ -f skill/make-android-widget/agents/openai.yaml ]]
-    [[ -d skill/make-android-widget/assets && -d skill/make-android-widget/references ]]
-    for script in check-github-stuff check-local make-remote verify-apk; do
-        [[ -x "skill/make-android-widget/scripts/$script" ]]
-        cmp -s "scripts/$script" "skill/make-android-widget/scripts/$script"
+    [[ ! -L build ]] || return 1
+    [[ -f skill/make-android-widget/SKILL.md ]] || return 1
+    [[ -f skill/make-android-widget/agents/openai.yaml ]] || return 1
+    [[ -d skill/make-android-widget/assets && -d skill/make-android-widget/references ]] || return 1
+    for script in check-github-stuff check-local make-remote verify-apk source-state; do
+        [[ -x "scripts/$script" && -x "skill/make-android-widget/scripts/$script" ]] || return 1
+        cmp "scripts/$script" "skill/make-android-widget/scripts/$script" || return 1
     done
+    if [[ -e scripts/backup-signing-key ]]; then
+        [[ -x scripts/backup-signing-key && -x skill/make-android-widget/scripts/backup-signing-key ]] || return 1
+        cmp scripts/backup-signing-key skill/make-android-widget/scripts/backup-signing-key || return 1
+    fi
+    if [[ -e scripts/export-conversation ]]; then
+        [[ -x scripts/export-conversation && -x skill/make-android-widget/scripts/export-conversation ]] || return 1
+        cmp scripts/export-conversation skill/make-android-widget/scripts/export-conversation || return 1
+    fi
 }
+
+main() {
+# Start a fresh log before checking prerequisites, so a failed invocation cannot reuse PASS.
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT=$PWD
+cd "$ROOT"
+mkdir -p "$(dirname "$LOG_FILE")"
+exec 3>&1 4>&2
+exec > >(tee "$LOG_FILE") 2>&1
+LOG_PID=$!
+trap finish_log EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 need bash
 need cmp
@@ -205,13 +226,9 @@ need sha256sum
 need sed
 need shellcheck
 
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || die "run this check inside a Git worktree"
-cd "$ROOT"
+git rev-parse --show-toplevel >/dev/null || die "run this check inside a Git worktree"
 WORKFLOW_FILE=${WORKFLOW_FILE:-.github/workflows/android-widget.yml}
 [[ -f "$WORKFLOW_FILE" ]] || die "workflow not found: $WORKFLOW_FILE"
-
-mkdir -p "$(dirname "$LOG_FILE")"
-exec > >(tee "$LOG_FILE") 2>&1
 
 printf 'Starting complete local validation for %s.\n' "$ROOT"
 source_digest=$(current_source_digest)
@@ -224,12 +241,28 @@ run_check "Gradle qualityCheck" ./gradlew qualityCheck --no-daemon --stacktrace
 run_check "Android XML parsing" check_xml
 run_check "workflow YAML and CI assertions" check_workflow
 run_check "project and script contract" check_project_contract
+[[ "$(current_source_digest)" == "$source_digest" ]] || failures=$((failures + 1))
 
 if [[ "$failures" -eq 0 ]]; then
     printf 'CHECK_LOCAL_RESULT=PASS\n'
     exit 0
 fi
 
-printf 'CHECK_LOCAL_RESULT=FAIL\n'
 printf 'CHECK_LOCAL_FAILURES=%s\n' "$failures"
 exit 1
+}
+
+finish_log() {
+    local status=$?
+    trap - EXIT
+    if [[ "$status" -ne 0 ]]; then
+        printf 'CHECK_LOCAL_RESULT=FAIL\n'
+    fi
+    exec 1>&3 2>&4
+    wait "$LOG_PID" || status=1
+    exit "$status"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

@@ -1,18 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <lint>
-    <!-- API 37 is pre-release; target the latest stable Android release, API 36. -->
+    <!-- The project contract pins targetSdk 36; changing runtime behavior needs a separate review. -->
     <issue id="OldTargetApi">
         <ignore path="build.gradle.kts" />
     </issue>
 
-    <!-- AGP 9.2 requires Gradle 9.4.1; a newer standalone Gradle is not compatible by default. -->
+    <!-- Gradle 9.4.1 is the pinned wrapper tested with AGP 9.2; review upgrades separately. -->
     <issue id="AndroidGradlePluginVersion">
-        <ignore regexp="A newer version of Gradle than 9\.4\.1 is available: 9\.6\.1" />
+        <ignore regexp="A newer version of Gradle than 9\.4\.1 is available: 9\.8\.0" />
     </issue>
 
     <!-- Keep the stable API 36 policy; all other dependency update findings remain enabled. -->
     <issue id="GradleDependency">
         <ignore regexp="compileSdk" />
+        <!-- Core 1.19.1 requires compileSdk 37; this project deliberately retains API 36. -->
+        <ignore regexp="A newer version of androidx.core:core-ktx than 1\.18\.0 is available: 1\.19\.1" />
     </issue>
 
     <!-- The release contract intentionally keeps the latent native ABI filter arm64-only. -->

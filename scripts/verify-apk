@@ -49,6 +49,15 @@ readonly DEBUGGABLE
   die "unexpected target SDK: $ACTUAL_TARGET_SDK (expected $EXPECTED_TARGET_SDK)"
 [[ "$DEBUGGABLE" == false ]] || die "release APK is debuggable: $DEBUGGABLE"
 
-"$APKSIGNER" verify --verbose --print-certs "$APK" >/dev/null || die "APK signature verification failed"
+CERTIFICATE_REPORT=$("$APKSIGNER" verify --verbose --print-certs "$APK") || die "APK signature verification failed"
+if [[ -n "${EXPECTED_CERT_SHA256:-}" ]]; then
+  [[ "$EXPECTED_CERT_SHA256" =~ ^[[:xdigit:]]{64}$ ]] || die 'EXPECTED_CERT_SHA256 must be a 64-digit hexadecimal fingerprint'
+  ACTUAL_CERT_SHA256=$(printf '%s\n' "$CERTIFICATE_REPORT" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+  [[ "${ACTUAL_CERT_SHA256,,}" == "${EXPECTED_CERT_SHA256,,}" ]] || die 'APK certificate identity mismatch'
+elif [[ "${ALLOW_DEVELOPMENT_SIGNATURE:-0}" == 1 ]]; then
+  printf 'Development bootstrap: certificate identity is not pinned.\n'
+else
+  die 'EXPECTED_CERT_SHA256 is required; configure the distribution certificate fingerprint'
+fi
 printf 'APK verified: package=%s minSdk=%s targetSdk=%s debuggable=%s\n' \
   "$EXPECTED_PACKAGE" "$ACTUAL_MIN_SDK" "$ACTUAL_TARGET_SDK" "$DEBUGGABLE"

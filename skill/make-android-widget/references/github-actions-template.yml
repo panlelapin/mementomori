@@ -25,6 +25,8 @@ jobs:
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
       - name: Install Android SDK packages
         run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+      - name: Install script validation tools
+        run: sudo apt-get update && sudo apt-get install -y shellcheck ripgrep python3-yaml gnupg
       - name: Run strict Kotlin quality gate
         run: ./gradlew qualityCheck --no-daemon --stacktrace
       - name: Build release APK
@@ -33,6 +35,8 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          # Initial bootstrap only. Distribution must pin EXPECTED_CERT_SHA256 instead.
+          export ALLOW_DEVELOPMENT_SIGNATURE=1
           mapfile -t apks < <(find app/build/outputs/apk/release -type f -name '*.apk' -print)
           test "${#apks[@]}" -eq 1
           ./scripts/verify-apk "${apks[0]}" com.example.widget 34 36

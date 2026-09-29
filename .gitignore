@@ -5,6 +5,8 @@
 **/build/
 /local.properties
 /check-local.log
+/.signing/
+__pycache__/
 *.iml
 *~
 .#*

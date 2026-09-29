@@ -2,12 +2,16 @@ package com.github.panlelapin.mementomori
 
 import android.R.string.cancel
 import android.R.string.ok
+import android.app.Dialog
 import android.content.Context
 import android.graphics.Color
+import android.os.Bundle
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.annotation.StringRes
+import androidx.fragment.app.DialogFragment
 import com.google.android.material.R.style.TextAppearance_Material3_LabelLarge
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -22,25 +26,67 @@ private const val PREVIEW_HEIGHT_DP = 64
 private const val PREVIEW_CORNER_DP = 16f
 private const val PREVIEW_STROKE_DP = 1
 
-/** Material RGB picker used for the light and dark widget colors. */
-internal object MaterialColorPicker {
-    fun show(
-        context: Context,
-        @StringRes title: Int,
-        initialColor: Int,
-        onColorSelected: (Int) -> Unit,
-    ) {
-        val controls = ColorControls(context = context, initialColor = initialColor)
-        val builder = MaterialAlertDialogBuilder(context)
-        builder
-            .setTitle(title)
-            .setView(controls.root)
-            .setNegativeButton(cancel, null)
-            .setPositiveButton(ok) { _, _ ->
-                onColorSelected(controls.selectedColor())
-            }
-        val dialog = builder.create()
-        dialog.show()
+/** Restorable Material RGB dialog; unsaved selection lives in fragment state, not preferences. */
+class MaterialColorPicker : DialogFragment() {
+    private var controls: ColorControls? = null
+
+    override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
+        val context = requireContext()
+        val arguments = requireArguments()
+        val initialColor = savedInstanceState?.getInt(COLOR_KEY) ?: arguments.getInt(COLOR_KEY)
+        val currentControls = ColorControls(context, initialColor)
+        controls = currentControls
+        val isDarkMode = arguments.getBoolean(DARK_MODE_KEY)
+        val title = if (isDarkMode) R.string.dark_mode else R.string.light_mode
+        val builder =
+            MaterialAlertDialogBuilder(context)
+                .setTitle(title)
+                .setView(ScrollView(context).apply { addView(currentControls.root) })
+                .setNegativeButton(cancel, null)
+                .setPositiveButton(ok) { _, _ ->
+                    parentFragmentManager.setFragmentResult(
+                        RESULT_KEY,
+                        Bundle().apply {
+                            putInt(COLOR_KEY, currentControls.selectedColor())
+                            putBoolean(DARK_MODE_KEY, arguments.getBoolean(DARK_MODE_KEY))
+                        },
+                    )
+                }
+        return builder.create()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt(
+            COLOR_KEY,
+            controls?.selectedColor() ?: requireArguments().getInt(COLOR_KEY),
+        )
+    }
+
+    // Detekt 2 alpha does not resolve this inherited AndroidX super call; it is present below.
+    @Suppress("MissingSuperCall")
+    override fun onDestroyView() {
+        super.onDestroyView()
+        controls = null
+    }
+
+    /** Stable keys also identify results restored after a configuration change. */
+    companion object {
+        internal const val RESULT_KEY = "font_color_picker"
+        internal const val COLOR_KEY = "color"
+        internal const val DARK_MODE_KEY = "dark_mode"
+
+        internal fun newInstance(
+            darkMode: Boolean,
+            color: Int,
+        ): MaterialColorPicker {
+            val arguments =
+                Bundle().apply {
+                    putBoolean(DARK_MODE_KEY, darkMode)
+                    putInt(COLOR_KEY, color)
+                }
+            return MaterialColorPicker().apply { this.arguments = arguments }
+        }
     }
 }
 

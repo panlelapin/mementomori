@@ -25,14 +25,29 @@ jobs:
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
       - name: Install Android SDK packages
         run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+      - name: Install local validation tools
+        run: sudo apt-get update && sudo apt-get install -y shellcheck ripgrep python3-yaml gnupg
       - name: Run strict Kotlin quality gate
         run: ./gradlew qualityCheck --no-daemon --stacktrace
+      - name: Restore distribution signing key
+        env:
+          RELEASE_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE }}
+        run: |
+          test -n "$RELEASE_KEYSTORE"
+          umask 077
+          printf '%s' "$RELEASE_KEYSTORE" | base64 --decode > "$RUNNER_TEMP/release.p12"
       - name: Build release APK
+        env:
+          RELEASE_STORE_FILE: ${{ runner.temp }}/release.p12
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: distribution
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
       - name: Verify, collect, and checksum exactly one APK
         shell: bash
         run: |
           set -Eeuo pipefail
+          export EXPECTED_CERT_SHA256="$(tr -d '\r\n' < config/release-certificate.sha256)"
           mapfile -t apks < <(find app/build/outputs/apk/release -type f -name '*.apk' -print)
           test "${#apks[@]}" -eq 1
           ./scripts/verify-apk "${apks[0]}" com.github.panlelapin.mementomori 34 36
@@ -47,3 +62,6 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+      - name: Remove temporary signing key
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/release.p12"

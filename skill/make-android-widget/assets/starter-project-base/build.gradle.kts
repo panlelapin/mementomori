@@ -47,5 +47,27 @@ tasks.register<JavaExec>("ktlintFormat") {
 tasks.register("qualityCheck") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Run the strict Kotlin quality gate used locally and in CI."
-    dependsOn(ktlintCheck, ":app:detektRelease", ":app:lintRelease")
+    dependsOn(
+        ktlintCheck,
+        ":app:detektRelease",
+        ":app:lintRelease",
+        "scriptTests",
+        "scriptContract",
+    )
+}
+
+tasks.register<Exec>("scriptTests") {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Run isolated delivery regression tests without GitHub or ADB."
+    commandLine("python3", "-B", "-m", "unittest", "discover", "-s", "tests", "-v")
+}
+
+tasks.register<Exec>("scriptContract") {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Check actual scripts and the versioned skill snapshot."
+    commandLine(
+        "bash",
+        "-c",
+        "source scripts/check-local; check_shell_syntax && check_shellcheck && check_project_contract",
+    )
 }

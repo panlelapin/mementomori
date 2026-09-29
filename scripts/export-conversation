@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Export visible messages from one explicit local Codex session into an ignored file.
+
+Never copy a raw rollout: it also contains tool traffic and internal instructions.
+This is a text transcript, not an importable Codex session or a promise of full history.
+"""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import subprocess
+
+
+def visible_transcript(session: Path, project: Path) -> dict:
+    """Snapshot a single project session; exclude tools, reasoning and injected context."""
+    with session.open("rb") as stream:
+        snapshot = stream.read(os.fstat(stream.fileno()).st_size)
+    # A live session may be in the middle of appending its last record.
+    lines = snapshot.splitlines()
+    incomplete_tail = bool(lines and not snapshot.endswith(b"\n"))
+    if incomplete_tail:
+        lines.pop()
+    records = [json.loads(line) for line in lines]
+    if not records or records[0].get("type") != "session_meta":
+        raise ValueError("not a recognized Codex session")
+    meta = records[0]["payload"]
+    if Path(meta.get("cwd", "")).resolve() != project.resolve():
+        raise ValueError("session belongs to a different project")
+    messages = []
+    for record in records:
+        payload = record.get("payload", {})
+        if record.get("type") == "turn_context" and payload.get("cwd"):
+            if Path(payload["cwd"]).resolve() != project.resolve():
+                raise ValueError("session includes another project; refusing a mixed export")
+        if record.get("type") != "response_item" or payload.get("type") != "message":
+            continue
+        role = payload.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        if payload.get("channel") not in (None, "final", "commentary"):
+            continue
+        if payload.get("recipient") not in (None, "all"):
+            continue
+        text = "\n".join(
+            part.get("text", "") for part in payload.get("content", [])
+            if part.get("type") in ("input_text", "output_text")
+        )
+        if not text.strip():
+            continue
+        if role == "user" and text.lstrip().startswith((
+            "# AGENTS.md instructions for ", "<environment_context>", "<turn_aborted>",
+        )):
+            continue
+        messages.append({"timestamp": record.get("timestamp"), "role": role, "text": text})
+    if not messages:
+        raise ValueError("no visible messages found")
+    return {
+        "format": "visible-conversation-v1",
+        "session_id": meta.get("id"),
+        "scope": "Available user and assistant text only; no tools, internal instructions or reasoning.",
+        "incomplete_tail_omitted": incomplete_tail,
+        "messages": messages,
+    }
+
+
+def write_private_export(project: Path, output: Path, transcript: dict) -> None:
+    """Refuse Git-visible destinations, existing files and paths outside the project."""
+    relative = output.resolve().relative_to(project.resolve())
+    ignored = subprocess.run(
+        ["git", "check-ignore", "-q", "--no-index", "--", str(relative)], cwd=project,
+    )
+    tracked = subprocess.check_output(["git", "ls-files", "--", str(relative)], cwd=project)
+    if ignored.returncode != 0 or tracked:
+        raise ValueError("plaintext output must be ignored by Git and not tracked")
+    descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        json.dump(transcript, stream, ensure_ascii=False, indent=2)
+        stream.write("\n")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("session", type=Path, help="one explicitly selected rollout JSONL")
+    parser.add_argument("output", type=Path, help="new ignored plaintext file (encrypt before upload)")
+    parser.add_argument("--project", type=Path, default=Path.cwd())
+    args = parser.parse_args()
+    try:
+        transcript = visible_transcript(args.session, args.project)
+        write_private_export(args.project, args.output, transcript)
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        parser.exit(1, f"export-conversation: {error}\n")
+    print(f"Exported {len(transcript['messages'])} visible messages to {args.output} (private, not encrypted).")
+    print("Encrypt this file before any upload. Nothing uploaded or deleted.")
+
+
+if __name__ == "__main__":
+    main()

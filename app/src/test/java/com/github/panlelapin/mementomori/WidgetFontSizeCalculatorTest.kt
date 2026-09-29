@@ -6,100 +6,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WidgetFontSizeCalculatorTest {
-    private val labels = listOf("10\u2009Y", "120\u2009M", "521\u2009W")
-
     @Test
-    fun fontSizeUsesTheMostRestrictiveDimension() {
-        val square =
-            WidgetFontSizeCalculator.calculateSp(
-                widthDp = 110f,
-                heightDp = 110f,
-                fontScale = 1f,
-                labels = labels,
-            )
-        val narrow =
-            WidgetFontSizeCalculator.calculateSp(
-                widthDp = 70f,
-                heightDp = 110f,
-                fontScale = 1f,
-                labels = labels,
-            )
-        val short =
-            WidgetFontSizeCalculator.calculateSp(
-                widthDp = 110f,
-                heightDp = 70f,
-                fontScale = 1f,
-                labels = labels,
-            )
-
-        assertEquals(31.05f, square, 0.001f)
-        assertEquals(20.25f, narrow, 0.001f)
-        assertEquals(17.55f, short, 0.001f)
+    fun measuredContentFitsBothDimensionsWithoutStretching() {
+        for (width in listOf(0f, 94f, 204f, 400f)) {
+            for (height in listOf(0f, 94f, 204f, 400f)) {
+                val scale = WidgetFontSizeCalculator.fitScale(width, height, 180f, 260f)
+                assertTrue(180f * scale <= width + 0.001f)
+                assertTrue(260f * scale <= height + 0.001f)
+                assertTrue(scale in 0f..1f)
+            }
+        }
     }
 
     @Test
-    fun fontSizeGrowsWithWidgetSize() {
-        val small =
-            WidgetFontSizeCalculator.calculateSp(
-                widthDp = 55f,
-                heightDp = 110f,
-                fontScale = 1f,
-                labels = labels,
-            )
-        val large =
-            WidgetFontSizeCalculator.calculateSp(
-                widthDp = 220f,
-                heightDp = 220f,
-                fontScale = 1f,
-                labels = labels,
-            )
-
-        assertTrue(large > small)
+    fun neverEnlargesAlreadyFittingText() {
+        assertEquals(1f, WidgetFontSizeCalculator.fitScale(200f, 200f, 20f, 30f), 0f)
     }
 
     @Test
-    fun fontScaleIsCompensatedToKeepTextVisible() {
-        assertEquals(
-            20.25f,
-            WidgetFontSizeCalculator.calculateSp(
-                widthDp = 110f,
-                heightDp = 110f,
-                fontScale = 1.5f,
-                labels = labels,
-            ),
-        )
-    }
-
-    @Test
-    fun tinyWidgetStillReturnsAPositiveUsableSize() {
-        assertEquals(
-            1f,
-            WidgetFontSizeCalculator.calculateSp(
-                widthDp = 0f,
-                heightDp = 0f,
-                fontScale = 1f,
-                labels = listOf(""),
-            ),
-        )
-    }
-
-    @Test
-    fun invalidInputsAreRejected() {
-        assertThrows(IllegalArgumentException::class.java) {
-            WidgetFontSizeCalculator.calculateSp(
-                widthDp = 110f,
-                heightDp = 110f,
-                fontScale = 1f,
-                labels = emptyList(),
-            )
+    fun rejectsInvalidMeasurements() {
+        for (value in listOf(-1f, Float.NaN, Float.POSITIVE_INFINITY)) {
+            assertThrows(IllegalArgumentException::class.java) {
+                WidgetFontSizeCalculator.fitScale(value, 10f, 10f, 10f)
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                WidgetFontSizeCalculator.fitScale(10f, value, 10f, 10f)
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                WidgetFontSizeCalculator.fitScale(10f, 10f, value, 10f)
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                WidgetFontSizeCalculator.fitScale(10f, 10f, 10f, value)
+            }
         }
         assertThrows(IllegalArgumentException::class.java) {
-            WidgetFontSizeCalculator.calculateSp(
-                widthDp = 110f,
-                heightDp = 110f,
-                fontScale = 0f,
-                labels = labels,
-            )
+            WidgetFontSizeCalculator.fitScale(10f, 10f, 0f, 1f)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            WidgetFontSizeCalculator.fitScale(10f, 10f, 1f, 0f)
         }
     }
 }

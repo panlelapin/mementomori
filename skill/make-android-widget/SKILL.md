@@ -93,6 +93,44 @@ Do not rewrite these resources ad hoc in each target repository. Copy them and c
 
 ## Synchronize reusable scripts and repository skill snapshots
 
+The reusable delivery scripts include `scripts/source-state` (Python 3). Copy it with
+the four Bash entry points and preserve its executable permission. Copy `tests/test_delivery.py`
+to the widget repository's `tests/` directory and run it in `qualityCheck` and CI. These tests
+use temporary repositories and fake APK tools; they must never contact GitHub or an ADB device.
+Use a content-and-permissions digest independent of HEAD, so staging/committing a validated
+tree does not invalidate `--resume`. Resume additionally requires a clean tree and the exact
+successful run commit. Start the local log before prerequisite checks and wait for its writer;
+each contract assertion must return failure explicitly, including inside an `if`-called function.
+Check Bash syntax one file at a time.
+
+For distribution, provision a persistent signing key using the user's chosen secret strategy
+and require `EXPECTED_CERT_SHA256` in `verify-apk`. `make-remote` can read its public fingerprint
+from `config/release-certificate.sha256`. Never generate or rotate a private key without the user's
+authorization, log secrets, or commit unencrypted key material. The explicit `ALLOW_DEVELOPMENT_SIGNATURE=1`
+exception is for the first development bootstrap only; it does not verify certificate identity.
+Run regression tests before every release assembly, including when assembly is invoked directly.
+
+Only when the user requests a recoverable encrypted backup on GitHub, copy the optional
+`scripts/backup-signing-key` and `tests/test_signing_backup.py`. It takes a directory containing
+`release.p12` and `password`, plus a new `.tar.gpg` destination. Require GnuPG/gpgconf locally
+and in CI for its real-encryption tests (which use disposable keys and public fixture phrases).
+The owner runs it in their own interactive terminal; GnuPG prompts privately for a unique
+passphrase of at least seven randomly selected words, then asks again to verify recovery.
+Never ask for that phrase in chat or invent one on the owner's behalf. Only ciphertext may
+enter Git, with explicit user authorization. Keep the existing CI signing secrets unchanged.
+The helper neither uploads nor removes originals. Verify the downloaded ciphertext and its
+decryption before any separately authorized local deletion. If user input is needed, hand off
+the exact terminal command and report that creation/publication is still pending.
+
+Use `--no-keyring` for symmetric encryption/decryption, which does not need `pubring.kbx`.
+Test with a fresh keyring directory and require that no public keyring is created. Additional
+backup files must be explicitly named regular files within the source directory. When asked
+to archive a conversation, use the optional `scripts/export-conversation` with one explicit
+project session and copy `tests/test_conversation_export.py` too. Export only visible user and
+assistant text into an ignored private file; exclude tools, internal instructions, reasoning
+and other projects. Never upload a raw session or plaintext export, even to a private repo.
+Report the export's scope and snapshot limit; do not promise a restorable Codex session.
+
 Every reusable script modified in an Android widget repository must remain neutral and
 widget-independent. Do not hard-code a current widget's package name, display name, target
 date, artifact identity, or other product value into a reusable script. Infer a value from the
@@ -113,6 +151,13 @@ widget. Perform this synchronization before validation and before reporting the 
 Then verify the complete copied tree against the source skill and verify its reusable scripts
 against the repository scripts. Repository `scripts/check-local` must enforce the snapshot's
 presence, Git visibility, and script equality on subsequent checks.
+
+For a self-contained checkout, the versioned skill can be the active source; no user-global
+installation is required. Expose it via a repository-relative `.agents/skills` symlink when
+Codex discovery is needed. If a developer-installed copy exists, keep it synchronized as
+above; if none exists, do not make it a prerequisite. Document required tools/authentication
+separately from irreplaceable private data. `check-github-stuff` discovers/configures the
+repository; it is not a purge and must not be described or run as one.
 
 ## Enforce the post-check repository contract
 
@@ -149,8 +194,8 @@ send those pixels through a native `RemoteViews` `ImageView`. Do not rely on a l
 `TextView`, a generic family name, or a font span: the launcher must receive no live text whose
 typeface it can replace. Render the bitmap at the current AppWidget option dimensions, align its
 three lines to the right and center the block vertically. The static XML preview must use the same
-bundled font, thin Unicode spacing before suffixes, right/end alignment, and representative
-non-placeholder values. Its current target and minimum widget size is 2x2; keep
+bundled font or vector outlines derived from it, the same sub-glyph suffix spacing, right alignment,
+and representative non-placeholder values. Its current target and minimum widget size is 2x2; keep
 `targetCellWidth="2"`, `targetCellHeight="2"`, and matching 110dp by 110dp minimum dimensions
 in the provider metadata. The pure font-size calculation must use the current AppWidget option
 dimensions and grow for larger widget sizes. Use the real `widget_content` layout as

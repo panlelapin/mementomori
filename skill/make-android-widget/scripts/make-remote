@@ -246,16 +246,10 @@ require_local_check() {
 }
 
 current_source_digest() {
-  {
-    git rev-parse HEAD
-    git diff --binary HEAD --
-    while IFS= read -r -d '' path; do
-      printf 'untracked:%s\0' "$path"
-      git hash-object -- "$path"
-    done < <(git ls-files --others --exclude-standard -z)
-  } | sha256sum | sed 's/[[:space:]].*$//'
+  python3 scripts/source-state
 }
 
+need python3
 need git
 need gh
 need find
@@ -305,9 +299,19 @@ git check-ignore -q --no-index "$BUILD_DIR/" || \
 [[ -x ./gradlew ]] || die "Gradle wrapper is required: ./gradlew"
 
 require_local_check
+if [[ -z "${EXPECTED_CERT_SHA256:-}" && -f config/release-certificate.sha256 ]]; then
+  EXPECTED_CERT_SHA256=$(tr -d '\r\n' < config/release-certificate.sha256)
+fi
+if [[ "$BOOTSTRAP" -eq 1 && -z "${EXPECTED_CERT_SHA256:-}" ]]; then
+  export ALLOW_DEVELOPMENT_SIGNATURE=1
+else
+  [[ "${EXPECTED_CERT_SHA256:-}" =~ ^[[:xdigit:]]{64}$ ]] || die 'configure EXPECTED_CERT_SHA256 before delivery'
+fi
+export EXPECTED_CERT_SHA256
 
 HEAD_SHA=$(git rev-parse HEAD)
 if [[ -n "$RESUME_RUN_ID" ]]; then
+  [[ -z "$(git status --porcelain)" ]] || die 'resume requires a clean worktree matching the built commit'
   RUN_ID=$RESUME_RUN_ID
   IFS=$'\t' read -r STATUS CONCLUSION RUN_HEAD_SHA < <(
     gh run view "$RUN_ID" --repo "$REPOSITORY" --json status,conclusion,headSha \
@@ -414,7 +418,9 @@ cleanup() {
   [[ -z "$DEVICE_VERIFY_DIR" || ! -d "$DEVICE_VERIFY_DIR" ]] || rm -rf -- "$DEVICE_VERIFY_DIR"
   exit "$status"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 DOWNLOAD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/make-remote-download.XXXXXX")
 gh run download "$RUN_ID" --repo "$REPOSITORY" --name "$ARTIFACT_NAME" --dir "$DOWNLOAD_DIR"

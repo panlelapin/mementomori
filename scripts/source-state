@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""Hash deliverable paths, bytes and executable bits independently of Git commit IDs."""
+
+import hashlib
+import os
+from pathlib import Path
+import subprocess
+
+
+def source_digest(root: Path) -> str:
+    """Include tracked and unignored new files; a deleted tracked file is absent."""
+    paths = subprocess.check_output(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        cwd=root,
+    ).split(b"\0")
+    digest = hashlib.sha256()
+    for name in sorted(set(paths) - {b""}):
+        path = root / os.fsdecode(name)
+        if not path.exists() and not path.is_symlink():
+            continue
+        mode = path.lstat().st_mode
+        content = os.fsencode(os.readlink(path)) if path.is_symlink() else path.read_bytes()
+        digest.update(name + b"\0")
+        digest.update(str(mode & 0o170111).encode() + b"\0")
+        digest.update(hashlib.sha256(content).digest())
+    return digest.hexdigest()
+
+
+if __name__ == "__main__":
+    print(source_digest(Path.cwd()))

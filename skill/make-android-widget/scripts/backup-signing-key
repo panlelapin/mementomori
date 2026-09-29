@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Create a recoverable encrypted backup; never upload or delete the originals.
+set -Eeuo pipefail
+umask 077
+
+die() {
+    printf 'backup-signing-key: %s\n' "$*" >&2
+    exit 1
+}
+
+[[ $# -ge 2 ]] || die 'usage: scripts/backup-signing-key SOURCE_DIRECTORY OUTPUT.tar.gpg [EXTRA_FILENAME ...]'
+for tool in gpg tar cmp mktemp ln sha256sum tty; do
+    command -v "$tool" >/dev/null || die "missing command: $tool"
+done
+[[ -t 0 && -t 2 ]] || die 'run this command in your own interactive terminal, not a captured log'
+
+source_dir=$(cd -- "$1" && pwd -P)
+output=$2
+shift 2
+files=(release.p12 password "$@")
+[[ "$output" == *.tar.gpg ]] || die 'the output must end with .tar.gpg'
+[[ ! -e "$output" && ! -L "$output" ]] || die 'refusing to overwrite an existing backup'
+for name in "${files[@]}"; do
+    [[ "$name" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]] || die 'extra files must be simple filenames inside SOURCE_DIRECTORY'
+    [[ -s "$source_dir/$name" && ! -L "$source_dir/$name" ]] || die "missing, empty or symlinked $name"
+done
+
+# Only ciphertext is written to disk. GnuPG owns the hidden passphrase prompts.
+# Disabling the symmetric cache forces a fresh passphrase entry for verification.
+export GPG_TTY
+GPG_TTY=$(tty)
+encrypted_tmp=$(mktemp -- "${output}.tmp.XXXXXX")
+cleanup() {
+    rm -f -- "$encrypted_tmp"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+printf '%s\n' \
+    'Choose a unique passphrase (at least 7 randomly selected words).' \
+    'Keep that passphrase privately; never paste it into chat or a Git commit.' \
+    'GnuPG will ask for it again to verify recovery without its password cache.'
+
+tar -C "$source_dir" -cf - -- "${files[@]}" |
+    gpg --no-options --no-keyring --no-symkey-cache --symmetric --cipher-algo AES256 \
+        --s2k-mode 3 --s2k-digest-algo SHA512 --s2k-count 65011712 > "$encrypted_tmp"
+
+# Compare the entire decrypted archive, not just the exit status of decryption.
+# An incorrect passphrase, corruption, or a concurrent source change aborts publication.
+# Symmetric encryption needs no public keyring, including on a fresh installation.
+gpg --no-options --no-keyring --no-symkey-cache --decrypt "$encrypted_tmp" |
+    cmp - <(tar -C "$source_dir" -cf - -- "${files[@]}")
+
+# Hard-link publication is atomic and refuses an existing destination, even in a race.
+ln -- "$encrypted_tmp" "$output"
+printf 'Encrypted backup verified locally: %s\n' "$output"
+sha256sum -- "$output"
+printf '%s\n' \
+    'Nothing uploaded. Originals retained.' \
+    'Before removing originals, upload only this encrypted file and verify its downloaded copy.'

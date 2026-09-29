@@ -57,6 +57,10 @@ dependencies {
     implementation("androidx.glance:glance-appwidget:1.1.1")
 }
 
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    dependsOn(rootProject.tasks.named("qualityCheck"))
+}
+
 detekt {
     toolVersion = "2.0.0-alpha.5"
     config.setFrom(rootProject.files("config/detekt/detekt.yml"))

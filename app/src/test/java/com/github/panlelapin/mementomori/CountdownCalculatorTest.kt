@@ -6,6 +6,22 @@ import java.time.LocalDate
 
 class CountdownCalculatorTest {
     @Test
+    fun leapDaysAndMonthEndsCountOnlyCompletedIntervals() {
+        assertEquals(
+            Countdown(0, 0, 4),
+            CountdownCalculator.from(LocalDate.of(2031, 1, 31), LocalDate.of(2031, 2, 28)),
+        )
+        assertEquals(
+            Countdown(0, 11, 52),
+            CountdownCalculator.from(LocalDate.of(2032, 2, 29), LocalDate.of(2033, 2, 28)),
+        )
+        assertEquals(
+            Countdown(1, 12, 52),
+            CountdownCalculator.from(LocalDate.of(2032, 2, 29), LocalDate.of(2033, 3, 1)),
+        )
+    }
+
+    @Test
     fun labelsUseThinSpacingBeforeSuffix() {
         assertEquals(
             listOf("10\u2009Y", "120\u2009M", "521\u2009W"),
