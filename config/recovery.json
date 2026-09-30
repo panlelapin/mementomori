@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "archive": "config/signing-backup.tar.gpg",
+  "archive_sha256": "118f2c76edfbc41c545197f6aec31fc311d7123cf0af16941d9b76979fd2c402",
+  "certificate": "config/release-certificate.sha256",
+  "key_alias": "distribution",
+  "files": ["release.p12", "password", "conversation.json"],
+  "jdk": 17,
+  "android_api": 36,
+  "build_tools": "36.0.0"
+}

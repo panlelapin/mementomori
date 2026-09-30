@@ -19,6 +19,7 @@ on this gate and the manual GitHub workflow runs it before signing. No APK is as
 | GitHub discovery | Matching origin is read-only; origin changes require confirmation; API errors never create/delete a repository |
 | Signing backup | Real GnuPG round trip without a public keyring, exact archive contents, optional transcript, wrong passphrase, cancellation, concurrent changes, overwrite/symlink/path rejection, terminal-only prompts |
 | Conversation export | Only visible messages, no tools/instructions/reasoning, no mixed projects, ignored private output, incomplete tail handling |
+| Workspace recovery | Ciphertext checksum, strict configuration, bounded input, allowlisted TAR members, traversal/link/device/duplicate rejection, private ignored paths, exclusive lock, rollback on publication conflict/interruption, real GnuPG and PKCS12/certificate verification, wrong phrase/password/certificate, no overwrite, explicit confirmations and failed-check delivery gate |
 
 Tests use API 34 with Robolectric native graphics and an explicitly verified SDK JAR.
 They exercise Android code without packaging/installing an APK. Pure coverage thresholds do
@@ -33,3 +34,7 @@ The delivery tests create isolated temporary repositories and fake inspection co
 they never push, dispatch workflows, install applications or use real signing secrets.
 Signing backup tests additionally require GnuPG and gpgconf, using an isolated temporary
 keyring and public fixture passphrases. They never read the real `.signing/` directory.
+Recovery tests additionally use JDK 17 `keytool` to generate a disposable private key.
+They are discovered automatically by `scriptTests`, which runs in `qualityCheck` and
+before every release assembly. See [the recovery guide](RESTORE_WORKSPACE.md) for the
+manual new-machine walkthrough; a green fixture test is not a real-user recovery test.

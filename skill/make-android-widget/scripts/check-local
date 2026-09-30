@@ -209,6 +209,12 @@ check_project_contract() {
         [[ -x scripts/export-conversation && -x skill/make-android-widget/scripts/export-conversation ]] || return 1
         cmp scripts/export-conversation skill/make-android-widget/scripts/export-conversation || return 1
     fi
+    if [[ -e scripts/restore-workspace ]]; then
+        [[ -x scripts/restore-workspace && -x skill/make-android-widget/scripts/restore-workspace ]] || return 1
+        cmp scripts/restore-workspace skill/make-android-widget/scripts/restore-workspace || return 1
+        [[ -f config/recovery.json && -f tests/test_workspace_recovery.py ]] || return 1
+        cmp tests/test_workspace_recovery.py skill/make-android-widget/tests/test_workspace_recovery.py || return 1
+    fi
 }
 
 main() {

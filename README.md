@@ -41,6 +41,13 @@ creating a repository or changing an existing origin. No GitHub purge script is 
 
 ## Resume on another computer
 
+After cloning, run `scripts/restore-workspace` in your own terminal. It diagnoses the
+machine, optionally guides GitHub login, restores the encrypted backup only with your
+confirmation, and verifies the original signing certificate. It separately asks before
+local checks and remote delivery. `scripts/restore-workspace --diagnose` does not restore
+or change anything. See the [complete recovery guide](docs/RESTORE_WORKSPACE.md).
+It never installs system tools, overwrites private files or asks an agent for your passphrase.
+
 Clone this repository: its source, Gradle wrapper, scripts, documentation and complete
 `skill/make-android-widget/` are versioned together. Codex discovers that same skill through
 the relative link `.agents/skills/make-android-widget`; no private copy in a user directory
@@ -59,9 +66,11 @@ as the only backup.
 The workflow uses the GitHub secrets `RELEASE_KEYSTORE` (base64 PKCS12) and
 `RELEASE_STORE_PASSWORD`, with alias `distribution`. The public SHA-256 certificate fingerprint
 is tracked in `config/release-certificate.sha256`; APK verification rejects any other signer.
-The originals are in the ignored, private `.signing/` directory. Future updates need the same
-signing identity. To keep only a recovery passphrase yourself, prepare an encrypted backup
-for GitHub from your own interactive terminal:
+The local originals were removed after verification and explicit authorization; the encrypted
+backup is in `config/signing-backup.tar.gpg`. Recover them only when needed into the ignored,
+private `.signing/` directory. Future updates need the same signing identity.
+To create a new encrypted backup when originals are available,
+run from your own interactive terminal:
 
 ```sh
 scripts/backup-signing-key .signing config/signing-backup.tar.gpg

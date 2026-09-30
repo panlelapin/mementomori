@@ -1,0 +1,483 @@
+#!/usr/bin/env python3
+"""Recover a cloned Android workspace without guessing or replacing its signing identity.
+
+Run in the clone: scripts/restore-workspace (interactive) or --diagnose (read-only).
+The public config/recovery.json supplies all project-specific values. Only Python's
+standard library is used. See docs/RESTORE_WORKSPACE.md for the security model,
+prerequisites, exit codes, interruption handling and intentionally manual steps.
+
+Neither a passphrase option nor an environment-variable shortcut exists: GnuPG owns
+the hidden prompt in the owner's terminal. Never invoke restoration from an agent,
+CI job or captured log. Automated tests use disposable fixtures, not real secrets.
+"""
+
+import argparse
+from contextlib import contextmanager
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import tarfile
+import tempfile
+
+
+CONFIG_PATH = "config/recovery.json"
+PRIVATE_DIR = ".signing"
+# Bound both ciphertext and decrypted bytes, including any GPG decompression.
+MAX_ARCHIVE = 32 * 1024 * 1024
+FILE_LIMITS = {"release.p12": 1024 * 1024, "password": 4096,
+               "conversation.json": 16 * 1024 * 1024}
+
+
+class RecoveryError(Exception):
+    """A safe, human-readable failure; never include subprocess output or secrets."""
+
+
+class Interrupted(Exception):
+    """Unwind transactions on INT/TERM/HUP, retaining the appropriate exit status."""
+
+    def __init__(self, number):
+        self.number = number
+
+
+def capture(command, cwd=None, timeout=30, env=None):
+    """Capture tool diagnostics privately; callers may display only public facts."""
+    try:
+        return subprocess.run(command, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                              capture_output=True, timeout=timeout, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RecoveryError(f"Commande indisponible ou délai dépassé : {command[0]}") from error
+
+
+def git(root, *args):
+    result = capture(["git", *args], cwd=root)
+    if result.returncode:
+        raise RecoveryError("La vérification Git a échoué ; aucun secret n'a été affiché.")
+    return result.stdout
+
+
+def regular_bytes(path, limit):
+    """Open a bounded regular file without following a final symlink or a FIFO."""
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= limit:
+            raise RecoveryError("Fichier absent, vide, non régulier ou trop volumineux.")
+        data = stream.read(limit + 1)
+        if len(data) > limit:
+            raise RecoveryError("Fichier trop volumineux.")
+        return data
+
+
+def repository_file(root, name):
+    """Reject absolute paths, traversal and symlinks in every path component."""
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9._/-]+", name):
+        raise RecoveryError("Chemin de configuration invalide.")
+    parts = name.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        raise RecoveryError("Chemin absolu ou traversée de répertoire interdite.")
+    path = root
+    for part in parts:
+        path = path / part
+        if path.is_symlink():
+            raise RecoveryError("Un chemin de configuration contient un lien symbolique.")
+    return path
+
+
+def load_config(root):
+    """Validate the whole public contract before asking for any secret."""
+    config = json.loads(regular_bytes(repository_file(root, CONFIG_PATH), 65536))
+    required = {"format", "archive", "archive_sha256", "certificate", "key_alias",
+                "files", "jdk", "android_api", "build_tools"}
+    if (not isinstance(config, dict) or set(config) != required
+            or type(config["format"]) is not int or config["format"] != 1):
+        raise RecoveryError("Configuration de restauration inconnue ou incomplète.")
+    for name in ("archive", "certificate"):
+        repository_file(root, config[name])
+    if not isinstance(config["archive_sha256"], str) or not re.fullmatch(
+            r"[0-9a-f]{64}", config["archive_sha256"]):
+        raise RecoveryError("Empreinte SHA-256 de l'archive invalide.")
+    if config["files"] not in (["release.p12", "password"],
+                               ["release.p12", "password", "conversation.json"]):
+        raise RecoveryError("Liste des fichiers à restaurer non autorisée.")
+    if not isinstance(config["key_alias"], str) or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9_-]*", config["key_alias"]):
+        raise RecoveryError("Alias de signature invalide.")
+    if any(type(config[name]) is not int or not 1 <= config[name] <= 999
+           for name in ("jdk", "android_api")):
+        raise RecoveryError("Version JDK/SDK invalide.")
+    if not isinstance(config["build_tools"], str) or not re.fullmatch(
+            r"[0-9]+\.[0-9]+\.[0-9]+", config["build_tools"]):
+        raise RecoveryError("Version Build Tools invalide.")
+    return config
+
+
+def checked_archive(root, config):
+    """Pin ciphertext bytes, not merely their filename; never decrypt changed input."""
+    encrypted = regular_bytes(repository_file(root, config["archive"]), MAX_ARCHIVE)
+    if hashlib.sha256(encrypted).hexdigest() != config["archive_sha256"]:
+        raise RecoveryError("SHA-256 de l'archive incorrect : restauration refusée.")
+    expected = regular_bytes(repository_file(root, config["certificate"]), 256).strip()
+    if not re.fullmatch(rb"[0-9a-f]{64}", expected):
+        raise RecoveryError("Empreinte publique du certificat invalide.")
+    return encrypted, expected.decode("ascii")
+
+
+def discover_jdk(version):
+    """Prefer explicit JAVA_HOME, then PATH and the same conventional user locations."""
+    candidates = []
+    if os.environ.get("JAVA_HOME"):
+        candidates.append(Path(os.environ["JAVA_HOME"]))
+    java = shutil.which("java")
+    if java:
+        candidates.append(Path(java).resolve().parent.parent)
+    candidates += [Path.home() / f".local/share/jdks/temurin-{version}",
+                   Path.home() / f".jdks/temurin-{version}"]
+    candidates += sorted(Path("/usr/lib/jvm").glob("*"))
+    for candidate in candidates:
+        if not all(os.access(candidate / "bin" / tool, os.X_OK)
+                   for tool in ("java", "javac", "keytool")):
+            continue
+        result = capture([str(candidate / "bin/java"), "-version"])
+        if result.returncode == 0 and re.search(
+                rb'version "' + str(version).encode() + rb'(?:\.|\")',
+                result.stdout + result.stderr):
+            return candidate.resolve()
+    return None
+
+
+def discover_sdk(root, config):
+    """Find an installed SDK; never download tools or accept licenses silently."""
+    candidates = [Path(os.environ[name]) for name in ("ANDROID_HOME", "ANDROID_SDK_ROOT")
+                  if os.environ.get(name)]
+    properties = root / "local.properties"
+    if properties.exists():
+        for line in regular_bytes(properties, 65536).decode("utf-8").splitlines():
+            if line.startswith("sdk.dir="):
+                candidates.append(Path(line.removeprefix("sdk.dir=")))
+    candidates += [Path.home() / ".local/share/android-sdk", Path.home() / "Android/Sdk",
+                   Path.home() / ".android/sdk", Path.home() / "Library/Android/sdk"]
+    for candidate in candidates:
+        tools = [candidate / "build-tools" / config["build_tools"] / tool
+                 for tool in ("aapt2", "apksigner")]
+        tools.append(candidate / "cmdline-tools/latest/bin/apkanalyzer")
+        if all(os.access(tool, os.X_OK) for tool in tools) and (
+                candidate / f'platforms/android-{config["android_api"]}/android.jar').is_file():
+            return candidate.resolve()
+    return None
+
+
+def diagnose(root, config):
+    """Read-only readiness report, including a bounded GitHub authentication check.
+
+    This is not check-local and never creates its PASS log. Missing development
+    tools do not prevent recovery if GnuPG and a JDK/keytool are available.
+    """
+    missing = []
+
+    def report(label, ready):
+        print(f'{"OK" if ready else "MANQUE"}: {label}', flush=True)
+        if not ready:
+            missing.append(label)
+
+    for tool in ("bash", "git", "gh", "gpg", "gpgconf", "shellcheck", "rg", "tar",
+                 "sha256sum", "find", "sed", "sort", "cmp", "mktemp", "tee"):
+        report(tool, shutil.which(tool) is not None)
+    yaml = capture([sys.executable, "-c", "import yaml"])
+    report("Python 3 / PyYAML", yaml.returncode == 0)
+    jdk = discover_jdk(config["jdk"])
+    sdk = discover_sdk(root, config)
+    report(f'JDK {config["jdk"]} (JAVA_HOME)', jdk is not None)
+    report(f'Android SDK {config["android_api"]}, Build Tools {config["build_tools"]}, '
+           'apkanalyzer (ANDROID_HOME)', sdk is not None)
+    report("identité Git pour les prochains commits", all(
+        capture(["git", "config", "--get", setting], cwd=root).stdout.strip()
+        for setting in ("user.name", "user.email")))
+    skill = root / "skill/make-android-widget"
+    report("skill versionnée et lien de découverte", (skill / "SKILL.md").is_file()
+           and (root / ".agents/skills/make-android-widget").resolve() == skill.resolve())
+    if shutil.which("gh"):
+        try:
+            authenticated = capture(["gh", "auth", "status", "--hostname", "github.com"])
+            report("authentification GitHub", authenticated.returncode == 0)
+        except RecoveryError:
+            report("authentification GitHub (réseau indisponible ou délai dépassé)", False)
+    print("Codex et adb : facultatifs ; reconnecter Codex séparément si utilisé.")
+    print("Aucune installation ni modification des comptes effectuée.")
+    if missing:
+        print("Installer/configurer les éléments MANQUE, puis relancer --diagnose.")
+        print("Connexion manuelle : gh auth login ; gh auth setup-git")
+        print("Identité locale : git config user.name NOM ; git config user.email EMAIL")
+        print('SDK, une fois sdkmanager installé : sdkmanager "platform-tools" '
+              f'"platforms;android-{config["android_api"]}" '
+              f'"build-tools;{config["build_tools"]}"')
+        print("Licences Android à examiner et accepter soi-même : sdkmanager --licenses")
+    return missing, jdk, sdk
+
+
+def confirm(question):
+    """Opt in from a real terminal; EOF, empty replies and unattended runs decline."""
+    if not sys.stdin.isatty() or not sys.stderr.isatty():
+        raise RecoveryError("Lancer dans votre propre terminal interactif, sans capture de logs.")
+    try:
+        return input(question + " [o/N] ").strip().lower() in ("o", "oui", "y", "yes")
+    except EOFError:
+        return False
+
+
+def validate_private_directory(root):
+    """Never write plaintext where Git may track it; never repair unsafe permissions."""
+    private = root / PRIVATE_DIR
+    if git(root, "ls-files", "-z", "--", PRIVATE_DIR):
+        raise RecoveryError("Le répertoire privé contient des fichiers suivis par Git.")
+    for name in (f"{PRIVATE_DIR}/", f"{PRIVATE_DIR}/release.p12",
+                 f"{PRIVATE_DIR}/password", f"{PRIVATE_DIR}/conversation.json",
+                 f"{PRIVATE_DIR}/.restore-probe/content"):
+        result = capture(["git", "check-ignore", "-q", "--no-index", "--", name], cwd=root)
+        if result.returncode != 0:
+            raise RecoveryError("Le répertoire privé et ses fichiers doivent être ignorés par Git.")
+    if os.path.lexists(private):
+        info = private.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+                or stat.S_IMODE(info.st_mode) != 0o700):
+            raise RecoveryError(".signing doit être un vrai dossier privé appartenant à l'utilisateur, mode 700.")
+    else:
+        private.mkdir(mode=0o700)
+    return private
+
+
+@contextmanager
+def restoration_lock(private):
+    """Exclusive creation prevents competing invocations; never remove someone else's lock."""
+    lock = private / ".restore.lock"
+    try:
+        descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError as error:
+        raise RecoveryError("Verrou .signing/.restore.lock présent ; consulter la procédure d'interruption.") from error
+    info = os.fstat(descriptor)
+    os.close(descriptor)
+    try:
+        yield
+    finally:
+        if lock.exists() and lock.lstat().st_ino == info.st_ino:
+            lock.unlink()
+
+
+def decrypt(encrypted, staging):
+    """Only ciphertext touches disk; bounded plaintext is held in process memory.
+
+    Read to EOF and require GPG success BEFORE parsing any archive. A wrong phrase,
+    truncated packet or integrity failure must never publish even partial output.
+    This cannot promise forensic memory/swap erasure; use trusted encrypted storage.
+    """
+    ciphertext = staging / "input.gpg"
+    with ciphertext.open("xb") as stream:
+        stream.write(encrypted)
+    environment = dict(os.environ, GPG_TTY=os.ttyname(sys.stdin.fileno()))
+    with ciphertext.open("rb") as source:
+        process = subprocess.Popen(
+            ["gpg", "--no-options", "--no-keyring", "--no-symkey-cache",
+             "--pinentry-mode", "loopback", "--output", "-", "--decrypt"],
+            stdin=source, stdout=subprocess.PIPE, env=environment,
+        )
+        try:
+            data = process.stdout.read(MAX_ARCHIVE + 1)
+            if len(data) > MAX_ARCHIVE:
+                raise RecoveryError("Archive déchiffrée trop volumineuse.")
+            if process.wait() != 0:
+                raise RecoveryError("Déchiffrement refusé, annulé ou archive corrompue ; rien restauré.")
+            return data
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            process.stdout.close()
+
+
+def unpack(data, staging, expected_files):
+    """Validate the entire allowlisted tar before writing any file.
+
+    Do NOT use extract/extractall: copy only flat regular members ourselves, with
+    exclusive creation and private permissions. Reject duplicate, sparse, linked,
+    unexpected, oversize and traversal entries independently of Python's defaults.
+    """
+    contents = {}
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as archive:
+        for member in archive:
+            if (member.name not in expected_files or member.name in contents
+                    or member.type not in (tarfile.REGTYPE, tarfile.AREGTYPE)
+                    or member.sparse is not None
+                    or member.pax_headers or not 0 < member.size <= FILE_LIMITS[member.name]):
+                raise RecoveryError("Contenu d'archive inattendu ou dangereux ; rien restauré.")
+            with archive.extractfile(member) as stream:
+                content = stream.read(FILE_LIMITS[member.name] + 1)
+            if len(content) != member.size:
+                raise RecoveryError("Fichier archivé tronqué.")
+            contents[member.name] = content
+        if any(data[archive.offset:]):
+            raise RecoveryError("Données supplémentaires après la fin de l'archive.")
+    if set(contents) != set(expected_files):
+        raise RecoveryError("Un fichier attendu manque dans l'archive.")
+    password = contents["password"].decode("utf-8").removesuffix("\n")
+    if not password or any(character in password for character in "\r\n\x00"):
+        raise RecoveryError("Format du fichier de mot de passe invalide.")
+    if "conversation.json" in contents:
+        transcript = json.loads(contents["conversation.json"])
+        if (not isinstance(transcript, dict) or transcript.get("format") != "visible-conversation-v1"
+                or not isinstance(transcript.get("messages"), list)
+                or not transcript["messages"]):
+            raise RecoveryError("Format de conversation inconnu.")
+        for message in transcript["messages"]:
+            if (not isinstance(message, dict) or message.get("role") not in ("user", "assistant")
+                    or not isinstance(message.get("text"), str)):
+                raise RecoveryError("Message de conversation invalide.")
+    for name, content in contents.items():
+        descriptor = os.open(staging / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+
+
+def verify_key(staging, keytool, alias, expected_fingerprint):
+    """Require a private-key entry AND the pinned certificate; suppress all tool output."""
+    common = [str(keytool), "-J-Duser.language=en", "-J-Duser.country=US",
+              "-keystore", str(staging / "release.p12"), "-storetype", "PKCS12",
+              "-storepass:file", str(staging / "password"), "-alias", alias]
+    listing = capture(common + ["-list"], timeout=30)
+    if listing.returncode or b"PrivateKeyEntry" not in listing.stdout:
+        raise RecoveryError("Clé privée/alias/mot de passe PKCS12 invalide ; rien restauré.")
+    certificate = capture(common + ["-exportcert"], timeout=30)
+    if certificate.returncode or hashlib.sha256(certificate.stdout).hexdigest() != expected_fingerprint:
+        raise RecoveryError("La clé ne correspond pas au certificat de distribution ; rien restauré.")
+
+
+def publish(staging, private, names):
+    """Create final paths without overwrite, rolling back only our own new inodes.
+
+    A set of three files cannot be atomically committed into an existing directory.
+    Hard links fail if a destination appears concurrently; catchable failures undo
+    only links that still refer to our staged files. SIGKILL/power loss may leave a
+    private partial set, which the next run refuses to overwrite.
+    """
+    published = []
+    try:
+        for name in names:
+            source, destination = staging / name, private / name
+            # Record before linking so an interrupt just after link can be unwound.
+            published.append((source, destination))
+            os.link(source, destination, follow_symlinks=False)
+    except BaseException:
+        for source, destination in reversed(published):
+            if os.path.lexists(destination) and destination.lstat().st_ino == source.stat().st_ino:
+                destination.unlink()
+        raise
+
+
+def restore(root, config, encrypted, fingerprint, keytool):
+    """Transactional restoration; never alter the backup, existing files or CI secrets."""
+    if not sys.stdin.isatty() or not sys.stderr.isatty():
+        raise RecoveryError("Restauration réservée au terminal interactif de l'utilisateur.")
+    if not shutil.which("gpg") or not os.access(keytool, os.X_OK):
+        raise RecoveryError("Installer GnuPG et un JDK avec keytool avant de restaurer.")
+    private = validate_private_directory(root)
+    with restoration_lock(private):
+        if any(os.path.lexists(private / name) for name in config["files"]):
+            raise RecoveryError("Un fichier cible existe déjà ; aucun écrasement autorisé.")
+        # TemporaryDirectory is generated under the checked private folder, never
+        # under /tmp or an unchecked environment-supplied directory.
+        with tempfile.TemporaryDirectory(prefix=".restore-", dir=private) as temporary:
+            staging = Path(temporary)
+            data = decrypt(encrypted, staging)
+            unpack(data, staging, config["files"])
+            verify_key(staging, keytool, config["key_alias"], fingerprint)
+            publish(staging, private, config["files"])
+    print("Restauration réussie : contenu et certificat vérifiés, dossier 700, fichiers 600.")
+    for name in config["files"]:
+        print(f"  {PRIVATE_DIR}/{name}")
+    print("Sauvegarde chiffrée conservée. Aucun secret GitHub modifié.")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--diagnose", action="store_true",
+                        help="vérifications publiques uniquement ; aucun déchiffrement ni écriture")
+    args = parser.parse_args()
+    if os.name != "posix" or sys.version_info < (3, 9):
+        raise RecoveryError("Python 3.9+ sur système POSIX requis (Linux recommandé, Windows via WSL).")
+    root = Path(git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip()).resolve()
+    config = load_config(root)
+    encrypted, fingerprint = checked_archive(root, config)
+    print("Archive chiffrée : SHA-256 conforme à config/recovery.json.")
+    print("Cette empreinte suppose un clone de confiance ; ce n'est pas une signature indépendante.")
+    missing, jdk, sdk = diagnose(root, config)
+    if args.diagnose:
+        return 2 if missing else 0
+    if any(item.startswith("authentification GitHub") for item in missing) and shutil.which("gh"):
+        if confirm("Ouvrir la connexion interactive gh auth login pour github.com ?"):
+            login = subprocess.run(["gh", "auth", "login", "--hostname", "github.com"], cwd=root)
+            if login.returncode:
+                raise RecoveryError("Connexion GitHub non terminée ; relancer ou utiliser --diagnose.")
+            if confirm("Configurer les identifiants Git via gh (modifie la configuration Git utilisateur) ?"):
+                setup = subprocess.run(["gh", "auth", "setup-git", "--hostname", "github.com"], cwd=root)
+                if setup.returncode:
+                    raise RecoveryError("Configuration des identifiants Git non terminée.")
+    if not confirm("Restaurer la clé, son mot de passe et les fichiers déclarés dans .signing ?"):
+        print("Restauration non demandée. La compilation distante n'exige pas de clé locale.")
+    else:
+        if jdk is None:
+            raise RecoveryError("Installer/configurer le JDK avant la restauration.")
+        restore(root, config, encrypted, fingerprint, jdk / "bin/keytool")
+    print("Pour reprendre avec un agent : lire AGENTS.md et la skill versionnée du dépôt.")
+    print("La conversation est un instantané JSON lisible, pas une session réimportable.")
+    print("Si restaurée : lire .signing/conversation.json pour retrouver les échanges sauvegardés.")
+    print("Ne pas demander à l'agent de lire release.p12 ou password.")
+    environment = dict(os.environ)
+    if jdk:
+        environment["JAVA_HOME"] = str(jdk)
+    if sdk:
+        environment["ANDROID_HOME"] = str(sdk)
+    if confirm("Lancer scripts/check-local maintenant (tests locaux, aucun APK) ?"):
+        result = subprocess.run([str(root / "scripts/check-local")], cwd=root, env=environment)
+        if result.returncode:
+            raise RecoveryError("check-local a échoué : lire check-local.log ; compilation distante bloquée.")
+        print("ATTENTION : make-remote peut committer/pousser toutes les modifications, lancer la CI,")
+        print("puis désinstaller/réinstaller via ADB (perte des réglages et widgets placés).")
+        if confirm("Lancer scripts/make-remote avec ces effets ?"):
+            result = subprocess.run([str(root / "scripts/make-remote")], cwd=root, env=environment)
+            if result.returncode:
+                raise RecoveryError("make-remote a échoué ; consulter son diagnostic avant de reprendre.")
+    else:
+        print("Tests/compilation non lancés. Plus tard : scripts/check-local && scripts/make-remote")
+    return 0
+
+
+def interrupted(number, _frame):
+    raise Interrupted(number)
+
+
+if __name__ == "__main__":
+    os.umask(0o077)
+    for watched_signal in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(watched_signal, interrupted)
+    try:
+        sys.exit(main())
+    except Interrupted as error:
+        print("\nInterruption : opérations arrêtées ; vérifier les éventuels fichiers privés restants.",
+              file=sys.stderr)
+        sys.exit(128 + error.number)
+    except RecoveryError as error:
+        print(f"restore-workspace: {error}", file=sys.stderr)
+        sys.exit(1)
+    except (OSError, ValueError, tarfile.TarError):
+        # Exception details could contain decoded archive data. Never print them.
+        print("restore-workspace: fichier invalide ou erreur système ; aucun détail privé affiché.",
+              file=sys.stderr)
+        sys.exit(1)

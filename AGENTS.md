@@ -264,6 +264,24 @@ installation globale. Le dépôt suffit pour les instructions et scripts, mais l
   dans un fichier ignoré par Git. Les instructions internes, raisonnements, outils et autres
   projets sont exclus. Ne jamais publier le JSON en clair ni un journal Codex brut ; seul le
   fichier chiffré, vérifié puis retéléchargé et vérifié, constitue la sauvegarde autorisée.
+- `scripts/restore-workspace` est l'entrée de reprise après clone, écrite en Python 3.9+
+  standard. Sa configuration publique est `config/recovery.json` et sa documentation
+  complète `docs/RESTORE_WORKSPACE.md`. Ne jamais mettre un secret dans cette configuration.
+  `--diagnose` est en lecture seule (avec vérification de connexion GitHub). La restauration
+  se lance dans le terminal du propriétaire, pas par l'agent : GnuPG demande la phrase,
+  le script contrôle l'archive et le certificat, puis écrit exclusivement dans `.signing/`
+  ignoré par Git, avec permissions privées, sans écraser de fichier. Aucun TAR en clair
+  n'est écrit sur disque. Une nouvelle clé n'est jamais créée pendant la restauration.
+- Ce script ne provisionne pas les outils système et ne reconnecte pas Codex. Il propose
+  les connexions GitHub et la configuration Git uniquement avec confirmation, puis demande
+  séparément avant `check-local` et avant `make-remote`. Ne pas assimiler son diagnostic à
+  un contrôle complet, ni l'export JSON à une session Codex réimportable. Les messages
+  postérieurs à la sauvegarde n'y sont pas ajoutés automatiquement.
+- `tests/test_workspace_recovery.py` fait partie du contrôle automatique `qualityCheck`.
+  Utiliser uniquement des clés et phrases de test jetables ; ne jamais déchiffrer la vraie
+  sauvegarde pour tester un script. Synchroniser le script, ses tests et sa documentation
+  avec les ressources de la skill. Une modification de l'archive exige la mise à jour
+  contrôlée de son empreinte dans `config/recovery.json`, pas un contournement du contrôle.
 
 ## État attendu à la fin d'une intervention
 

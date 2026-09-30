@@ -58,6 +58,11 @@ the `tar` command above. The file order and source metadata must match the creat
 
 ## Recovery after losing the originals
 
+For a clone of this repository, prefer `scripts/restore-workspace`. It checks the
+ciphertext checksum, validates the archive before extraction, verifies the recovered
+private-key certificate and refuses overwrites. See [the recovery guide](RESTORE_WORKSPACE.md).
+The manual procedure below is a fallback, not an equally comprehensive validator.
+
 Download the encrypted backup and use a private directory outside the repository. For
 example, in Bash (each command must succeed before continuing):
 

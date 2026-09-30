@@ -159,6 +159,25 @@ above; if none exists, do not make it a prerequisite. Document required tools/au
 separately from irreplaceable private data. `check-github-stuff` discovers/configures the
 repository; it is not a purge and must not be described or run as one.
 
+When a user requests an executable new-machine recovery procedure, copy the optional
+Python 3.9+ [restore-workspace](scripts/restore-workspace), its
+`tests/test_workspace_recovery.py`, and the [recovery guide](references/workspace-recovery.md)
+to the repository (`docs/RESTORE_WORKSPACE.md` for the guide). Read that guide before
+adapting recovery. Supply project-specific public values in `config/recovery.json`:
+format 1, encrypted archive path/SHA-256, certificate fingerprint path, signing alias,
+expected files and JDK/Android SDK/Build Tools versions. Never hard-code those identities
+in the reusable script. Run these isolated real-GnuPG/keytool tests in `qualityCheck`;
+`check-local` must verify that the recovery script and tests match the skill resources.
+
+Recovery runs in the owner's terminal, not the agent's tools. The read-only `--diagnose`
+mode does not decrypt, install software or establish authentication. Interactive recovery
+requires explicit consent, refuses existing targets, validates bounded archive contents
+and the original private-key certificate, and writes only to a Git-ignored private folder.
+Do not weaken archive/path/permission checks, pass a phrase in arguments/environment,
+rotate signing identities, or claim a transcript can recreate a Codex thread. Authentication,
+local checks and remote delivery require their own confirmations; failed checks block delivery.
+Preserve encrypted backups and report untested real-owner recovery separately from fixture tests.
+
 ## Enforce the post-check repository contract
 
 After `check-github-stuff` succeeds, require:

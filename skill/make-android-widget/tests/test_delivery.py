@@ -97,6 +97,24 @@ class DeliveryTests(unittest.TestCase):
         self.write(".gitignore", "build/\n")
         self.assertNotEqual(0, self.contract().returncode)
 
+    def test_recovery_contract_requires_matching_script_tests_config_and_permissions(self):
+        self.contract_fixture()
+        script = self.write("scripts/restore-workspace", "#!/usr/bin/env python3\n", True)
+        self.assertNotEqual(0, self.contract().returncode)
+        resource = self.write("skill/make-android-widget/scripts/restore-workspace",
+                              script.read_text(), True)
+        self.write("config/recovery.json", "{}")
+        tests = self.write("tests/test_workspace_recovery.py", "# tests\n")
+        self.write("skill/make-android-widget/tests/test_workspace_recovery.py", tests.read_text())
+        self.assertEqual(0, self.contract().returncode)
+        for change in ("content", "mode"):
+            with self.subTest(change=change):
+                if change == "content":
+                    resource.write_text("# mismatch\n")
+                else:
+                    resource.write_text(script.read_text())
+                    resource.chmod(0o644)
+                self.assertNotEqual(0, self.contract().returncode)
     def test_syntax_checker_parses_every_script(self):
         self.contract_fixture()
         for name in ("check-local", "make-remote", "verify-apk"):
